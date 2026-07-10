@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpaswf"
+version = "0.2.2"
+description = "Small MPAS-only workflow for CD-CT-derived WPS, MPAS initialization, and forecast production."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+netcdf = ["netCDF4>=1.6"]
+
+[project.scripts]
+mpaswf = "mpaswf.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mpaswf*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
