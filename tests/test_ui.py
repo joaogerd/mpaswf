@@ -8,7 +8,13 @@ from mpaswf.ui import Spinner, status
 
 
 def test_status_uses_color_when_forced(monkeypatch) -> None:
-    """Forced color highlights reuse messages with ANSI and a yellow marker."""
+    """Verify forced color and automatic reuse styling.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Pytest fixture used to control color-related environment variables.
+    """
     monkeypatch.setenv("MPASWF_COLOR", "always")
     monkeypatch.delenv("NO_COLOR", raising=False)
     output = io.StringIO()
@@ -22,7 +28,13 @@ def test_status_uses_color_when_forced(monkeypatch) -> None:
 
 
 def test_spinner_uses_colored_durable_lines_when_not_interactive(monkeypatch) -> None:
-    """Forced color still keeps redirected output line-oriented and readable."""
+    """Verify colored line-oriented spinner output for redirected streams.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Pytest fixture used to force ANSI color and clear ``NO_COLOR``.
+    """
     monkeypatch.setenv("MPASWF_COLOR", "always")
     monkeypatch.delenv("NO_COLOR", raising=False)
     output = io.StringIO()
@@ -37,7 +49,13 @@ def test_spinner_uses_colored_durable_lines_when_not_interactive(monkeypatch) ->
 
 
 def test_no_color_disables_ansi_even_when_forced(monkeypatch) -> None:
-    """The standard NO_COLOR opt-out has precedence over MPASWF_COLOR."""
+    """Verify that ``NO_COLOR`` takes precedence over forced color.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Pytest fixture used to set conflicting color environment variables.
+    """
     monkeypatch.setenv("MPASWF_COLOR", "always")
     monkeypatch.setenv("NO_COLOR", "1")
     output = io.StringIO()
