@@ -1,3 +1,10 @@
+"""Integration tests for the complete local MPASWF workflow.
+
+The tests construct isolated fake WPS and MPAS executables so all public phases
+can be exercised without external model installations, network access, or a PBS
+scheduler.
+"""
+
 from __future__ import annotations
 
 import os
@@ -10,12 +17,38 @@ from mpaswf.workflow import run_forecast, run_init, run_manifest, run_prepare
 
 
 def _script(path: Path, body: str) -> None:
+    """Create an executable Bash script used as a fake workflow dependency.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Destination path of the generated script.
+    body : str
+        Bash statements appended after the shebang and strict-shell options.
+
+    Notes
+    -----
+    The executable bit is added to the file's existing mode without replacing
+    other permission bits.
+    """
     path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body + "\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | 0o111)
 
 
 def test_local_pipeline_creates_manifest(tmp_path: Path) -> None:
-    """Exercise all four phases with small fake WPS and MPAS executables."""
+    """Exercise all four phases with fake local WPS and MPAS executables.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Pytest-provided temporary directory containing the isolated campaign,
+        templates, inputs, executables, and outputs.
+
+    Notes
+    -----
+    The test verifies that a single configured valid time produces a TSV
+    manifest containing one header row and one f024/f048 product row.
+    """
     apps = tmp_path / "apps"
     wps = apps / "wps"
     (wps / "ungrib" / "Variable_Tables").mkdir(parents=True)
