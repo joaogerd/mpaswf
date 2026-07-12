@@ -1,4 +1,9 @@
-"""WPS staging and execution for one MPAS initialization time."""
+"""Stage and execute WPS for one MPAS initialization time.
+
+The WPS stage acquires or reuses the configured GFS input, links the reference
+WPS executables and Vtable, renders ``namelist.wps``, executes ``link_grib`` and
+``ungrib``, and validates the expected ``FILE:`` intermediate product.
+"""
 
 from __future__ import annotations
 
@@ -16,14 +21,59 @@ from .validation import validate_file
 
 
 def _argv(raw: object, context: dict[str, str], label: str) -> list[str]:
-    """Render a configured argv list without shell evaluation."""
+    """Validate and render a configured command argument list.
+
+    Parameters
+    ----------
+    raw : object
+        Candidate command representation expected to be a non-empty list of
+        non-empty strings.
+    context : dict[str, str]
+        Placeholder values used to render each command token.
+    label : str
+        Configuration field name included in validation errors.
+
+    Returns
+    -------
+    list[str]
+        Rendered command tokens suitable for execution without a shell.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``raw`` is not a non-empty list of non-empty strings.
+    ConfigurationError
+        Propagated when a token references an unknown placeholder.
+    """
     if not isinstance(raw, list) or not raw or not all(isinstance(item, str) and item for item in raw):
         raise ValueError(f"{label} must be a non-empty list of strings.")
     return [render(item, context) for item in raw]
 
 
 def wps_output_path(config: WorkflowConfig, layout: Layout, init_time: datetime) -> Path:
-    """Return the declared WPS intermediate product path."""
+    """Resolve the declared WPS intermediate product path.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration containing ``wps.output_template``.
+    layout : Layout
+        Resolved campaign directory layout.
+    init_time : datetime
+        Initialization timestamp used to select the WPS directory and render the
+        output filename.
+
+    Returns
+    -------
+    pathlib.Path
+        Expected WPS product below the timestamp-specific WPS run directory.
+
+    Raises
+    ------
+    ConfigurationError
+        Propagated when the output template is missing, malformed, or references
+        an unknown placeholder.
+    """
     run_dir = layout.wps_dir(init_time)
     context = layout.context(init_time, init_time, 0, run_dir)
     output_name = render(string(config, "wps.output_template") or "", context)
@@ -31,23 +81,46 @@ def wps_output_path(config: WorkflowConfig, layout: Layout, init_time: datetime)
 
 
 def prepare_wps(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> Path:
-    """Download/stage GFS plus WPS inputs and run `link_grib` and `ungrib`.
+    """Acquire GFS input, stage WPS files, and run ``ungrib``.
 
     Parameters
     ----------
     config : WorkflowConfig
-        Loaded configuration.
+        Loaded workflow configuration.
     layout : Layout
-        Resolved directory layout.
+        Resolved campaign directory layout.
     init_time : datetime
-        WPS product time.
+        Initialization time of the required WPS product.
     force : bool, default=False
-        Re-run WPS even when the expected `FILE:` product is valid.
+        Redownload or restage GFS and rerun WPS even when the expected ``FILE:``
+        product already satisfies the configured minimum size.
 
     Returns
     -------
     pathlib.Path
-        Validated WPS `FILE:` product.
+        Validated WPS ``FILE:`` product.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when the WPS installation, GFS input, Vtable, executable, or
+        namelist template is missing.
+    ValueError
+        Raised when configured command argument lists are malformed.
+    RuntimeError
+        Propagated when GFS acquisition, an external WPS command, or final
+        product validation fails.
+    ConfigurationError
+        Propagated when configured templates or required values are malformed.
+    OSError
+        Propagated when directories, links, logs, rendered files, or metadata
+        cannot be created.
+
+    Notes
+    -----
+    Existing WPS installations are not modified. ``link_grib.csh``,
+    ``ungrib.exe``, and the Vtable are linked into the timestamp-specific run
+    directory. Command output is retained in persistent log files.
     """
     run_dir = layout.wps_dir(init_time)
     output = wps_output_path(config, layout, init_time)
