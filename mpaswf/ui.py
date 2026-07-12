@@ -1,4 +1,4 @@
-"""Colored terminal progress reporting for long-running MPASWF operations.
+"""Provide color-aware terminal progress for long-running MPASWF operations.
 
 The user-facing terminal output is intentionally restrained:
 
@@ -28,7 +28,13 @@ BRAILLE_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 
 
 class _Ansi:
-    """ANSI SGR sequences used by the compact MPASWF terminal theme."""
+    """Collect ANSI SGR sequences used by the MPASWF terminal theme.
+
+    Notes
+    -----
+    This internal namespace stores constants only and is not intended to be
+    instantiated.
+    """
 
     RESET = "\033[0m"
     BOLD = "\033[1m"
@@ -45,7 +51,7 @@ Style = Literal["info", "success", "warning", "error", "muted", "reuse"]
 
 
 def _interactive(stream: TextIO) -> bool:
-    """Return whether the stream supports in-place terminal animation.
+    """Check whether a stream supports in-place terminal animation.
 
     Parameters
     ----------
@@ -55,18 +61,14 @@ def _interactive(stream: TextIO) -> bool:
     Returns
     -------
     bool
-        ``True`` for a terminal that can safely receive carriage-return based
-        spinner output.
+        ``True`` when ``stream`` reports itself as a terminal and ``TERM`` is
+        not ``"dumb"``; otherwise ``False``.
     """
     return bool(getattr(stream, "isatty", lambda: False)()) and os.environ.get("TERM", "") != "dumb"
 
 
 def _color_enabled(stream: TextIO) -> bool:
-    """Return whether ANSI color should be emitted for ``stream``.
-
-    The environment variable ``MPASWF_COLOR`` accepts ``auto`` (default),
-    ``always``, and ``never``. ``NO_COLOR`` always disables ANSI color to keep
-    behavior compatible with common command-line conventions.
+    """Determine whether ANSI color should be emitted for a stream.
 
     Parameters
     ----------
@@ -77,6 +79,12 @@ def _color_enabled(stream: TextIO) -> bool:
     -------
     bool
         Whether ANSI SGR sequences should be emitted.
+
+    Notes
+    -----
+    ``MPASWF_COLOR`` accepts ``auto`` (default), ``always``, and ``never``.
+    ``NO_COLOR`` takes precedence and always disables ANSI color. Unrecognized
+    ``MPASWF_COLOR`` values behave like ``auto``.
     """
     if os.environ.get("NO_COLOR") is not None:
         return False
@@ -89,7 +97,24 @@ def _color_enabled(stream: TextIO) -> bool:
 
 
 def _paint(text: str, code: str, *, enabled: bool, reset: bool = True) -> str:
-    """Apply one ANSI style when colors are enabled."""
+    """Apply one ANSI style when color output is enabled.
+
+    Parameters
+    ----------
+    text : str
+        Text to decorate.
+    code : str
+        ANSI prefix placed before ``text``.
+    enabled : bool
+        Return plain text when ``False``.
+    reset : bool, default=True
+        Append the ANSI reset sequence after ``text``.
+
+    Returns
+    -------
+    str
+        Styled or unchanged text.
+    """
     if not enabled:
         return text
     suffix = _Ansi.RESET if reset else ""
@@ -97,7 +122,19 @@ def _paint(text: str, code: str, *, enabled: bool, reset: bool = True) -> str:
 
 
 def _auto_style(message: str) -> Style:
-    """Infer a compact visual style from common workflow status wording."""
+    """Infer a visual style from common workflow status wording.
+
+    Parameters
+    ----------
+    message : str
+        Status message to classify case-insensitively.
+
+    Returns
+    -------
+    Style
+        ``"reuse"`` for reuse or skip wording, ``"warning"`` for warning
+        wording, ``"muted"`` for log-path messages, and ``"info"`` otherwise.
+    """
     lowered = message.lower()
     if "reusing" in lowered or "skipping" in lowered or "already valid" in lowered:
         return "reuse"
@@ -109,7 +146,18 @@ def _auto_style(message: str) -> Style:
 
 
 def _status_parts(style: Style) -> tuple[str, str]:
-    """Return a marker and ANSI color for one persistent status style."""
+    """Return the marker and ANSI code associated with a status style.
+
+    Parameters
+    ----------
+    style : Style
+        Persistent status category.
+
+    Returns
+    -------
+    tuple[str, str]
+        Unicode marker and ANSI style prefix.
+    """
     mapping: dict[Style, tuple[str, str]] = {
         "info": ("•", _Ansi.BLUE + _Ansi.BOLD),
         "success": ("✓", _Ansi.GREEN + _Ansi.BOLD),
@@ -127,12 +175,17 @@ def status(message: str, *, stream: TextIO | None = None, style: Style | None = 
     Parameters
     ----------
     message : str
-        Human-readable description of the next workflow action.
+        Human-readable workflow status text.
     stream : text stream, optional
-        Destination stream. Defaults to standard output.
+        Destination stream. Standard output is used when omitted.
     style : {"info", "success", "warning", "error", "muted", "reuse"}, optional
         Explicit status appearance. When omitted, a small wording-based
-        classifier highlights reuse and log messages automatically.
+        classifier highlights reuse, warning, and log messages automatically.
+
+    Notes
+    -----
+    The function writes exactly one newline-terminated line and flushes the
+    destination stream before returning.
     """
     output = stream or sys.stdout
     active_style = style or _auto_style(message)
@@ -149,12 +202,18 @@ def format_bytes(size: int | None) -> str:
     Parameters
     ----------
     size : int or None
-        Input size in bytes.
+        Input size in bytes. ``None`` represents an unknown content length.
 
     Returns
     -------
     str
-        Compact human-readable representation.
+        Human-readable value using binary units from bytes through tebibytes,
+        or ``"unknown size"`` when ``size`` is ``None``.
+
+    Notes
+    -----
+    Values below one kibibyte are rendered as integer bytes. Larger values use
+    one decimal place.
     """
     if size is None:
         return "unknown size"
@@ -168,7 +227,20 @@ def format_bytes(size: int | None) -> str:
 
 
 def format_duration(seconds: float) -> str:
-    """Format a short elapsed duration for a terminal completion message."""
+    """Format an elapsed duration for terminal completion output.
+
+    Parameters
+    ----------
+    seconds : float
+        Elapsed duration in seconds.
+
+    Returns
+    -------
+    str
+        Milliseconds for durations below one second, decimal seconds below one
+        minute, minutes and seconds below one hour, or hours and minutes for
+        longer durations.
+    """
     if seconds < 1:
         return f"{seconds * 1000:.0f} ms"
     if seconds < 60:
@@ -182,21 +254,24 @@ def format_duration(seconds: float) -> str:
 
 @dataclass
 class Spinner:
-    """A small, color-aware braille spinner with updateable status text.
+    """Display an updateable braille spinner or durable progress lines.
 
     Parameters
     ----------
     message : str
         Initial status text rendered beside the braille animation.
     stream : text stream, optional
-        Destination stream. Defaults to standard output.
+        Destination stream. Standard output is used when omitted.
     interval_seconds : float, default=0.1
-        Delay between animation frames.
+        Delay between animation frames in seconds.
 
     Notes
     -----
-    ``start()``, ``update()``, ``succeed()``, and ``fail()`` are thread-safe.
-    Use ``succeed`` or ``fail`` exactly once to clear the animation line.
+    ``start()``, ``update()``, ``succeed()``, and ``fail()`` coordinate through
+    an internal lock. Interactive streams use a daemon thread and carriage-return
+    updates; noninteractive streams receive line-oriented ``[RUN]``, ``[OK]``,
+    and ``[FAIL]`` records. Calling ``succeed`` or ``fail`` more than once has no
+    effect after the first completion.
     """
 
     message: str
@@ -211,14 +286,26 @@ class Spinner:
     _finished: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
-        """Resolve terminal capabilities once for this spinner instance."""
+        """Resolve output stream, animation support, and color policy.
+
+        Notes
+        -----
+        This method is invoked automatically by :mod:`dataclasses` after field
+        initialization.
+        """
         if self.stream is None:
             self.stream = sys.stdout
         self._enabled = _interactive(self.stream)
         self._colors = _color_enabled(self.stream)
 
     def start(self) -> "Spinner":
-        """Start the animation or print a durable start line."""
+        """Start animation or emit a durable start line.
+
+        Returns
+        -------
+        Spinner
+            The same spinner instance, allowing chained construction and start.
+        """
         self._started = time.monotonic()
         if self._enabled:
             self._thread = threading.Thread(target=self._animate, name="mpaswf-spinner", daemon=True)
@@ -229,20 +316,44 @@ class Spinner:
         return self
 
     def update(self, message: str) -> None:
-        """Replace the text rendered next to the spinner."""
+        """Replace the status text rendered beside the spinner.
+
+        Parameters
+        ----------
+        message : str
+            New status text stored under the spinner lock.
+        """
         with self._lock:
             self.message = message
 
     def succeed(self, message: str | None = None) -> None:
-        """Stop the spinner and print a successful completion line."""
+        """Stop the spinner and print a successful completion line.
+
+        Parameters
+        ----------
+        message : str, optional
+            Final status text. The current spinner message is used when omitted.
+        """
         self._finish("✓", message or self.message, style="success")
 
     def fail(self, message: str | None = None) -> None:
-        """Stop the spinner and print a failure completion line."""
+        """Stop the spinner and print a failure completion line.
+
+        Parameters
+        ----------
+        message : str, optional
+            Final status text. The current spinner message is used when omitted.
+        """
         self._finish("✗", message or self.message, style="error")
 
     def _animate(self) -> None:
-        """Render rotating braille frames until the stop event is set."""
+        """Render rotating braille frames until the stop event is set.
+
+        Notes
+        -----
+        This internal method runs in the daemon thread created by :meth:`start`
+        for interactive streams.
+        """
         index = 0
         while not self._stop.is_set():
             with self._lock:
@@ -253,7 +364,23 @@ class Spinner:
             self._stop.wait(self.interval_seconds)
 
     def _finish(self, marker: str, message: str, *, style: Literal["success", "error"]) -> None:
-        """Clear the animation and print one terminal-stable result line."""
+        """Finalize animation and emit one terminal-stable result line.
+
+        Parameters
+        ----------
+        marker : str
+            Symbol displayed for interactive completion output.
+        message : str
+            Final human-readable status text.
+        style : {"success", "error"}
+            Completion category controlling color and durable output label.
+
+        Notes
+        -----
+        Elapsed time is measured from :meth:`start`. If completion occurs before
+        ``start``, the stored start value yields a large duration; callers are
+        expected to start the spinner before finishing it.
+        """
         if self._finished:
             return
         self._finished = True
@@ -272,7 +399,13 @@ class Spinner:
             self._write(f"{painted_word} {message} {painted_elapsed}\n")
 
     def _write(self, text: str) -> None:
-        """Write text atomically enough for the spinner thread."""
+        """Write and flush text while holding the spinner lock.
+
+        Parameters
+        ----------
+        text : str
+            Text written verbatim to the configured stream.
+        """
         assert self.stream is not None
         with self._lock:
             self.stream.write(text)
