@@ -1,4 +1,9 @@
-"""High-level implementation of the four public `mpaswf` phases."""
+"""Implement the four public MPASWF workflow phases.
+
+This module coordinates lower-level GFS, WPS, static interpolation,
+initialization, forecast, validation, and manifest helpers. It records concise
+phase-level JSON state without embedding scientific model configuration.
+"""
 
 from __future__ import annotations
 
@@ -19,13 +24,38 @@ from .ui import status
 
 @dataclass(frozen=True)
 class Campaign:
-    """Resolved fixed-shape f024/f048 MPAS campaign."""
+    """Store the resolved fixed-shape f024/f048 MPAS campaign.
+
+    Parameters
+    ----------
+    pairs : tuple of ProductPair
+        Ordered product pairs generated for every configured valid time.
+    """
 
     pairs: tuple[ProductPair, ...]
 
 
 def load_campaign(config: WorkflowConfig) -> Campaign:
-    """Build the campaign from the small `campaign` configuration section."""
+    """Build a campaign from the ``campaign`` configuration section.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+
+    Returns
+    -------
+    Campaign
+        Immutable tuple of f024/f048 product pairs.
+
+    Raises
+    ------
+    ValueError
+        Raised when campaign timestamps, spacing, or lead times are invalid, or
+        when ``campaign.leads_hours`` is not a list.
+    ConfigurationError
+        Propagated when a required campaign value is absent.
+    """
     start = parse_time(str(value(config, "campaign.start_valid_time")))
     end = parse_time(str(value(config, "campaign.end_valid_time")))
     interval = int(value(config, "campaign.interval_hours"))
@@ -36,12 +66,63 @@ def load_campaign(config: WorkflowConfig) -> Campaign:
 
 
 def _record_phase(layout: Layout, phase: str, payload: dict[str, object]) -> Path:
-    """Persist a simple phase-level status file."""
+    """Persist a phase-level JSON status record.
+
+    Parameters
+    ----------
+    layout : Layout
+        Resolved campaign directory layout.
+    phase : str
+        Phase name used as both the filename stem and the ``phase`` field.
+    payload : dict[str, object]
+        Additional JSON-serializable state fields.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to ``<metadata_dir>/<phase>.json``.
+
+    Raises
+    ------
+    TypeError
+        Propagated when ``payload`` is not JSON serializable.
+    OSError
+        Propagated when the metadata file cannot be written.
+    """
     return write_json(layout.metadata_dir / f"{phase}.json", {"phase": phase, **payload})
 
 
 def run_prepare(config: WorkflowConfig, *, force: bool = False) -> Path:
-    """Ensure GFS inputs and WPS `FILE:` products for all initialization times."""
+    """Ensure GFS inputs and WPS products for all initialization times.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    force : bool, default=False
+        Redownload GFS inputs and rerun WPS even when reusable products exist.
+
+    Returns
+    -------
+    pathlib.Path
+        Phase-level ``prepare.json`` record.
+
+    Raises
+    ------
+    FileNotFoundError
+        Propagated when a required local input, executable, Vtable, or template
+        is absent and cannot be acquired.
+    RuntimeError
+        Propagated when a download, external command, or product validation
+        fails.
+    ValueError
+        Propagated when campaign or command configuration is malformed.
+
+    Notes
+    -----
+    Initialization times are deduplicated across all f024/f048 pairs before WPS
+    processing, so each required time is prepared exactly once per invocation.
+    """
     layout = Layout.from_config(config)
     campaign = load_campaign(config)
     initialization_times = unique_initialization_times(campaign.pairs)
@@ -58,12 +139,42 @@ def run_prepare(config: WorkflowConfig, *, force: bool = False) -> Path:
 
 
 def run_init(config: WorkflowConfig, *, submit: bool, wait: bool, force: bool = False) -> Path:
-    """Generate/reuse the static product, then prepare or run dynamic initializations.
+    """Generate or reuse static data, then process dynamic initializations.
 
-    The static interpolation is a strict dependency. For a PBS backend with no
-    ``--wait``, the first call renders or submits only the static job when the
-    product is absent. Re-run the same command after validation to advance to
-    the date-dependent initialization layer.
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    submit : bool
+        Submit rendered PBS jobs when the configured backend is PBS.
+    wait : bool
+        Wait for submitted jobs and validate their products.
+    force : bool, default=False
+        Ignore reusable static and initialized-state products.
+
+    Returns
+    -------
+    pathlib.Path
+        Phase-level ``init.json`` record.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``wait`` is true while ``submit`` is false, or propagated
+        from malformed campaign or PBS configuration.
+    FileNotFoundError
+        Propagated when required executables, inputs, templates, or assets are
+        missing.
+    RuntimeError
+        Propagated when execution, submission, or validation fails outside the
+        expected static dependency boundary.
+
+    Notes
+    -----
+    Static interpolation is a strict dependency. For a PBS backend without
+    waiting, the first call renders or submits only the static job when its
+    product is absent. Re-running the same command after static validation
+    advances to the date-dependent initialization layer.
     """
     if wait and not submit:
         raise ValueError("--wait requires --submit.")
@@ -120,7 +231,40 @@ def run_init(config: WorkflowConfig, *, submit: bool, wait: bool, force: bool = 
 
 
 def run_forecast(config: WorkflowConfig, *, submit: bool, wait: bool, force: bool = False) -> Path:
-    """Prepare, run, or submit every required f024/f048 MPAS forecast."""
+    """Prepare, execute, or submit every required f024/f048 forecast.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    submit : bool
+        Submit rendered PBS jobs when the configured backend is PBS.
+    wait : bool
+        Wait for submitted jobs and validate forecast products.
+    force : bool, default=False
+        Ignore reusable forecast products.
+
+    Returns
+    -------
+    pathlib.Path
+        Phase-level ``forecast.json`` record.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``wait`` is true while ``submit`` is false, or propagated
+        from malformed campaign or PBS configuration.
+    FileNotFoundError
+        Propagated when required initial states, executables, templates, or
+        assets are missing.
+    RuntimeError
+        Propagated when execution, submission, or validation fails.
+
+    Notes
+    -----
+    Forecast requests are deduplicated by initialization time and lead time
+    before processing.
+    """
     if wait and not submit:
         raise ValueError("--wait requires --submit.")
     layout = Layout.from_config(config)
@@ -151,7 +295,36 @@ def run_forecast(config: WorkflowConfig, *, submit: bool, wait: bool, force: boo
 
 
 def run_manifest(config: WorkflowConfig) -> Path:
-    """Validate all f024/f048 products and write a neutral MPAS TSV manifest."""
+    """Validate all forecast pairs and write a neutral TSV manifest.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to ``mpas-forecast-manifest.tsv`` in the products directory.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when any required restart or ``da_state`` product is absent or
+        too small.
+    RuntimeError
+        Raised when requested NetCDF validation cannot be performed or fails.
+    ValueError
+        Propagated when campaign configuration is invalid.
+    OSError
+        Propagated when the products directory, TSV file, validation reports, or
+        phase record cannot be written.
+
+    Notes
+    -----
+    Each row contains one valid time and the f048/f024 ``da_state`` and restart
+    paths. Forecast products are validated before their paths are written.
+    """
     layout = Layout.from_config(config)
     campaign = load_campaign(config)
     ensure_directory(layout.products_dir)
