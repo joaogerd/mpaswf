@@ -1,4 +1,9 @@
-"""Conditional GFS acquisition with visible terminal progress."""
+"""Acquire configured GFS inputs with visible terminal progress.
+
+A valid local file is reused whenever possible. Missing inputs can be downloaded
+from a rendered URL and are first written to a temporary ``.download`` path so
+that incomplete network transfers are not mistaken for usable GFS products.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,18 @@ from .ui import Spinner, format_bytes, status
 
 @dataclass(frozen=True)
 class GFSProduct:
-    """One configured local GFS input file."""
+    """Describe one configured local GFS input file.
+
+    Parameters
+    ----------
+    init_time : datetime
+        GFS initialization timestamp associated with the product.
+    path : pathlib.Path
+        Expected local file path.
+    url : str or None
+        Rendered remote URL, or ``None`` when downloads are disabled and the
+        file must already exist locally.
+    """
 
     init_time: datetime
     path: Path
@@ -33,12 +49,21 @@ def resolve_gfs_product(config: WorkflowConfig, layout: Layout, init_time: datet
     layout : Layout
         Resolved campaign directory layout.
     init_time : datetime
-        Initialization timestamp.
+        GFS initialization timestamp used to render the configured file and URL
+        templates.
 
     Returns
     -------
     GFSProduct
-        Local target file plus optional remote URL.
+        Local target file together with its optional remote URL.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``gfs.url_template`` is neither a string nor ``None``.
+    ConfigurationError
+        Propagated when a configured template references an unknown placeholder
+        or a required string field is malformed.
     """
     context = render_time_context(init_time, init_time, 0)
     filename = render(string(config, "gfs.file_template") or "", context)
@@ -52,7 +77,20 @@ def resolve_gfs_product(config: WorkflowConfig, layout: Layout, init_time: datet
 
 
 def _content_length(response: object) -> int | None:
-    """Return a positive HTTP content length when the server supplies one."""
+    """Read a positive HTTP content length from a response object.
+
+    Parameters
+    ----------
+    response : object
+        Response-like object that may expose a ``headers`` mapping with a
+        ``Content-Length`` value.
+
+    Returns
+    -------
+    int or None
+        Positive content length in bytes, or ``None`` when the header is absent,
+        invalid, zero, or negative.
+    """
     headers = getattr(response, "headers", None)
     raw = headers.get("Content-Length") if headers is not None else None
     try:
@@ -78,12 +116,33 @@ def ensure_gfs(config: WorkflowConfig, layout: Layout, init_time: datetime, *, f
     init_time : datetime
         GFS initialization time.
     force : bool, default=False
-        Redownload even when a valid local file exists.
+        Redownload the input even when a valid local file already exists.
 
     Returns
     -------
     GFSProduct
-        Resolved local GFS product.
+        Resolved local GFS product whose file satisfies the configured minimum
+        size.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when the local file is absent or invalid and no URL template is
+        configured.
+    urllib.error.URLError
+        Naturally propagated when the remote source cannot be opened or read.
+    RuntimeError
+        Raised when a completed download is smaller than the configured minimum
+        size.
+    OSError
+        Propagated when directories or local files cannot be created, replaced,
+        or removed.
+
+    Notes
+    -----
+    The temporary download is removed when an exception occurs during transfer.
+    After a successful transfer, it replaces the target path before the minimum
+    size is checked.
     """
     product = resolve_gfs_product(config, layout, init_time)
     minimum_size = int(value(config, "gfs.minimum_size_bytes", required=False, default=1))
