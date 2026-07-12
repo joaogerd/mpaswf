@@ -1,4 +1,8 @@
-"""Command-line interface for the small MPAS-only workflow."""
+"""Command-line interface for the small MPAS-only workflow.
+
+This module exposes the ``mpaswf`` console entry point and dispatches the four
+public workflow phases without embedding phase-specific implementation logic.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,19 @@ from .ui import status
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the public `mpaswf` argument parser."""
+    """Build the public ``mpaswf`` argument parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser containing the ``run`` command and its phase, configuration,
+        submission, waiting, and force options.
+
+    Notes
+    -----
+    Argument compatibility between phases is checked by :func:`main` after
+    parsing so that the public command structure remains compact.
+    """
     parser = argparse.ArgumentParser(
         prog="mpaswf",
         description="Small MPAS-only workflow derived from one CD-CT reference case.",
@@ -27,17 +43,29 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the `mpaswf` command-line interface.
+    """Run the ``mpaswf`` command-line interface.
 
     Parameters
     ----------
     argv : list of str, optional
-        Command-line arguments excluding the executable name.
+        Command-line arguments excluding the executable name. When omitted,
+        :mod:`argparse` reads the process arguments from ``sys.argv``.
 
     Returns
     -------
     int
-        Process status code.
+        Process status code. Successful execution returns ``0``.
+
+    Raises
+    ------
+    SystemExit
+        Raised by argument parsing or when phase-specific command-line options
+        are combined in an unsupported way.
+
+    Notes
+    -----
+    Exceptions raised by configuration loading or workflow execution are not
+    intercepted and therefore propagate to the command-line caller.
     """
     args = build_parser().parse_args(argv)
     status(f"MPASWF {args.phase} phase: loading {args.config}.")
