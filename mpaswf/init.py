@@ -1,4 +1,9 @@
-"""MPAS initialization staging, execution, PBS submission, and validation."""
+"""Stage, execute, submit, and validate MPAS initialization runs.
+
+Dynamic initialization consumes a validated WPS intermediate and the reusable
+mesh-level static product. The same run-directory contract supports immediate
+local execution and PBS script generation with optional submission and waiting.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +26,19 @@ from .ui import status
 
 @dataclass(frozen=True)
 class InitRun:
-    """Resolved MPAS initialization paths for one initialization time."""
+    """Store resolved paths for one MPAS initialization time.
+
+    Parameters
+    ----------
+    init_time : datetime
+        Initialization timestamp represented by the run.
+    run_dir : pathlib.Path
+        Stage-specific MPAS initialization directory.
+    state_path : pathlib.Path
+        Expected initialized MPAS state product.
+    manifest_path : pathlib.Path
+        Persistent JSON state file for the initialization stage.
+    """
 
     init_time: datetime
     run_dir: Path
@@ -30,7 +47,30 @@ class InitRun:
 
 
 def load_init_run(config: WorkflowConfig, layout: Layout, init_time: datetime) -> InitRun:
-    """Resolve one initialization run without performing file-system changes."""
+    """Resolve an initialization run without modifying the file system.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration containing the initialized-state filename
+        template.
+    layout : Layout
+        Resolved campaign directory layout.
+    init_time : datetime
+        Initialization timestamp used to select the run directory and render
+        the output name.
+
+    Returns
+    -------
+    InitRun
+        Resolved initialization directory, state product, and metadata path.
+
+    Raises
+    ------
+    ConfigurationError
+        Propagated when the product template is missing, malformed, or references
+        an unknown placeholder.
+    """
     run_dir = layout.init_dir(init_time)
     context = layout.context(init_time, init_time, 0, run_dir)
     state_name = render(string(config, "products.init_state_template") or "", context)
@@ -38,7 +78,45 @@ def load_init_run(config: WorkflowConfig, layout: Layout, init_time: datetime) -
 
 
 def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> InitRun:
-    """Stage one MPAS initialization directory from the CD-CT reference case."""
+    """Stage one MPAS initialization directory from validated dependencies.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign directory layout.
+    init_time : datetime
+        Initialization timestamp to prepare.
+    force : bool, default=False
+        Restage the directory even when the initialized state already satisfies
+        the configured minimum size.
+
+    Returns
+    -------
+    InitRun
+        Initialization run contract after reuse or staging.
+
+    Raises
+    ------
+    FileNotFoundError
+        Propagated when the WPS product, static product, shared asset, or template
+        is missing.
+    RuntimeError
+        Propagated when WPS or static product validation fails.
+    ConfigurationError
+        Propagated when configuration values or template placeholders are
+        malformed.
+    OSError
+        Propagated when directories, links, rendered templates, or metadata
+        cannot be created.
+
+    Notes
+    -----
+    The WPS intermediate and static product are linked into the initialization
+    directory under their existing file names. Shared configured assets are
+    staged afterward, followed by the initialization namelist and streams files.
+    """
     run = load_init_run(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
@@ -84,11 +162,46 @@ def execute_init(
     wait: bool,
     force: bool = False,
 ) -> InitRun:
-    """Run, render, or submit one MPAS initialization stage.
+    """Execute locally or render and optionally submit one initialization.
 
-    With `execution.backend: local`, the executable runs immediately. With
-    `execution.backend: pbs`, a PBS script is always rendered; it is submitted
-    only when `submit=True`.
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign directory layout.
+    init_time : datetime
+        Initialization timestamp to process.
+    submit : bool
+        Submit the rendered PBS job when the configured backend is ``pbs``.
+    wait : bool
+        Wait for a submitted PBS job and validate its initialized state before
+        returning.
+    force : bool, default=False
+        Ignore a reusable initialized state and rerun or rerender the stage.
+
+    Returns
+    -------
+    InitRun
+        Initialization run contract after reuse, local execution, PBS rendering,
+        submission, or completion.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when the configured ``mpas_init_atmosphere`` executable or a
+        staged dependency is missing.
+    RuntimeError
+        Propagated when command execution, PBS submission, or state validation
+        fails.
+    ValueError
+        Propagated when PBS command configuration is malformed.
+
+    Notes
+    -----
+    With ``execution.backend: local``, the executable runs immediately. With
+    ``execution.backend: pbs``, a PBS script is always rendered and is submitted
+    only when ``submit`` is ``True``.
     """
     run = prepare_init(config, layout, init_time, force=force)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
@@ -142,7 +255,32 @@ def execute_init(
 
 
 def validate_init(config: WorkflowConfig, layout: Layout, init_time: datetime) -> Path:
-    """Validate one initialized MPAS state and persist a small report."""
+    """Validate one initialized MPAS state and persist a report.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration containing validation settings.
+    layout : Layout
+        Resolved campaign directory layout.
+    init_time : datetime
+        Initialization timestamp whose state product is validated.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to ``init-validation.json`` beside the stage manifest.
+
+    Raises
+    ------
+    FileNotFoundError
+        Raised when the initialized state is absent or too small.
+    RuntimeError
+        Raised when optional NetCDF validation is requested but unavailable or
+        the state cannot be opened as NetCDF.
+    OSError
+        Propagated when the validation report cannot be written.
+    """
     run = load_init_run(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     require_netcdf = bool(value(config, "validation.require_netcdf", required=False, default=False))
