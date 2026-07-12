@@ -1,7 +1,7 @@
-"""Campaign data models and deterministic time calculations.
+"""Define campaign data models and deterministic time calculations.
 
-The objects in this module intentionally describe only MPAS production products.
-They do not contain NMC, BFLOW, JEDI, or B-matrix concepts.
+The objects in this module intentionally describe only MPAS production
+products. They do not contain NMC, BFLOW, JEDI, or B-matrix concepts.
 """
 
 from __future__ import annotations
@@ -15,22 +15,24 @@ UTC = timezone.utc
 
 
 def parse_time(value: str) -> datetime:
-    """Parse one ISO-8601 timestamp as a timezone-aware UTC datetime.
+    """Parse an ISO-8601 timestamp as a timezone-aware UTC datetime.
 
     Parameters
     ----------
     value : str
-        Timestamp in ISO-8601 form. A trailing ``Z`` is accepted.
+        Timestamp in ISO-8601 form. A trailing ``Z`` is accepted and converted
+        to the explicit ``+00:00`` offset before parsing.
 
     Returns
     -------
     datetime
-        Equivalent timestamp normalized to UTC.
+        Equivalent timezone-aware timestamp normalized to UTC.
 
     Raises
     ------
     ValueError
-        Raised when the timestamp does not include a timezone offset.
+        Raised when ``value`` is not a valid ISO-8601 timestamp or does not
+        include a timezone offset.
     """
     normalized = value.replace("Z", "+00:00")
     parsed = datetime.fromisoformat(normalized)
@@ -40,7 +42,25 @@ def parse_time(value: str) -> datetime:
 
 
 def iso_time(value: datetime) -> str:
-    """Format one datetime as a canonical UTC timestamp."""
+    """Format a datetime as a canonical UTC timestamp.
+
+    Parameters
+    ----------
+    value : datetime
+        Timezone-aware timestamp to convert to UTC.
+
+    Returns
+    -------
+    str
+        Timestamp formatted as ``YYYY-MM-DDTHH:MM:SSZ``.
+
+    Raises
+    ------
+    ValueError
+        Naturally propagated by :meth:`datetime.astimezone` when ``value``
+        cannot be interpreted as a timezone-aware timestamp in the running
+        environment.
+    """
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -59,7 +79,14 @@ def render_time_context(init_time: datetime, valid_time: datetime, lead_hours: i
     Returns
     -------
     dict[str, str]
-        Values accepted by all CD-CT template rendering functions.
+        String-valued placeholders used by CD-CT template rendering, including
+        canonical timestamps, compact date forms, zero-padded lead time, and
+        MPAS run duration.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``lead_hours`` is negative.
     """
     return {
         "init_time": iso_time(init_time),
@@ -82,7 +109,23 @@ def render_time_context(init_time: datetime, valid_time: datetime, lead_hours: i
 
 
 def _mpas_duration(lead_hours: int) -> str:
-    """Format a forecast duration using the MPAS ``DDDD_HH:MM:SS`` form."""
+    """Format a forecast duration using the MPAS duration convention.
+
+    Parameters
+    ----------
+    lead_hours : int
+        Nonnegative forecast duration in hours.
+
+    Returns
+    -------
+    str
+        Duration formatted as ``DDDD_HH:MM:SS``.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``lead_hours`` is negative.
+    """
     if lead_hours < 0:
         raise ValueError("lead_hours must not be negative")
     days, hours = divmod(lead_hours, 24)
@@ -91,16 +134,21 @@ def _mpas_duration(lead_hours: int) -> str:
 
 @dataclass(frozen=True)
 class ForecastRequest:
-    """One concrete MPAS forecast required by a campaign.
+    """Describe one concrete MPAS forecast required by a campaign.
 
     Parameters
     ----------
     init_time : datetime
         Forecast initialization timestamp.
     valid_time : datetime
-        Expected valid timestamp.
+        Expected product valid timestamp.
     lead_hours : int
         Forecast duration in hours.
+
+    Notes
+    -----
+    The class stores the supplied values without independently verifying that
+    ``valid_time - init_time`` equals ``lead_hours``.
     """
 
     init_time: datetime
@@ -110,7 +158,17 @@ class ForecastRequest:
 
 @dataclass(frozen=True)
 class ProductPair:
-    """The f024 and f048 forecasts associated with one valid time."""
+    """Associate f024 and f048 forecasts with one valid time.
+
+    Parameters
+    ----------
+    valid_time : datetime
+        Common valid timestamp of both forecasts.
+    f024 : ForecastRequest
+        Forecast initialized 24 hours before ``valid_time``.
+    f048 : ForecastRequest
+        Forecast initialized 48 hours before ``valid_time``.
+    """
 
     valid_time: datetime
     f024: ForecastRequest
@@ -122,15 +180,23 @@ def valid_times(start: datetime, end: datetime, interval_hours: int) -> list[dat
 
     Parameters
     ----------
-    start, end : datetime
-        Inclusive UTC bounds.
+    start : datetime
+        First valid timestamp.
+    end : datetime
+        Final valid timestamp, included when it falls on the requested spacing.
     interval_hours : int
-        Positive spacing between valid times.
+        Positive spacing between consecutive valid times in hours.
 
     Returns
     -------
     list[datetime]
-        Ordered valid times.
+        Ordered timestamps from ``start`` through ``end``.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``interval_hours`` is not positive or ``end`` precedes
+        ``start``.
     """
     if interval_hours <= 0:
         raise ValueError("campaign.interval_hours must be positive")
@@ -151,23 +217,27 @@ def build_pairs(start: datetime, end: datetime, interval_hours: int, leads_hours
 
     Parameters
     ----------
-    start, end : datetime
-        Inclusive campaign valid-time bounds.
+    start : datetime
+        First campaign valid timestamp.
+    end : datetime
+        Final inclusive campaign valid timestamp.
     interval_hours : int
-        Time spacing between valid products.
+        Positive spacing between valid products in hours.
     leads_hours : iterable of int
-        Required lead times. The initial simple implementation requires 24 and
-        48 hours exactly because the output manifest is explicitly f024/f048.
+        Required forecast lead times. The current implementation requires 24
+        and 48 hours exactly because the output manifest is explicitly
+        organized as f024/f048 pairs.
 
     Returns
     -------
     list[ProductPair]
-        One pair for each valid time.
+        One pair for each valid time in chronological order.
 
     Raises
     ------
     ValueError
-        Raised when the requested leads are not exactly 24 and 48 hours.
+        Raised when the requested leads are not exactly 24 and 48 hours, or
+        when the valid-time interval is invalid.
     """
     unique_leads = sorted(set(leads_hours))
     if unique_leads != [24, 48]:
@@ -182,14 +252,41 @@ def build_pairs(start: datetime, end: datetime, interval_hours: int, leads_hours
 
 
 def unique_initialization_times(pairs: Iterable[ProductPair]) -> list[datetime]:
-    """Return sorted unique initialization times needed by all pairs."""
+    """Return sorted unique initialization times required by product pairs.
+
+    Parameters
+    ----------
+    pairs : iterable of ProductPair
+        Product pairs whose f024 and f048 initialization times are collected.
+
+    Returns
+    -------
+    list[datetime]
+        Unique initialization timestamps in ascending order.
+    """
     values = {pair.f024.init_time for pair in pairs}
     values.update(pair.f048.init_time for pair in pairs)
     return sorted(values)
 
 
 def unique_forecasts(pairs: Iterable[ProductPair]) -> list[ForecastRequest]:
-    """Return sorted unique forecast requests required by all pairs."""
+    """Return sorted unique forecast requests required by product pairs.
+
+    Parameters
+    ----------
+    pairs : iterable of ProductPair
+        Product pairs whose f024 and f048 requests are collected.
+
+    Returns
+    -------
+    list[ForecastRequest]
+        Unique requests sorted by initialization time and then lead time.
+
+    Notes
+    -----
+    Requests sharing the same ``(init_time, lead_hours)`` key are collapsed;
+    the last encountered object for that key is retained.
+    """
     values = {(pair.f024.init_time, pair.f024.lead_hours): pair.f024 for pair in pairs}
     values.update({(pair.f048.init_time, pair.f048.lead_hours): pair.f048 for pair in pairs})
     return [values[key] for key in sorted(values)]
