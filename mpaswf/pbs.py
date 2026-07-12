@@ -1,4 +1,9 @@
-"""Small PBS renderer, submission, and observable scheduler waiting."""
+"""Render, submit, and monitor small PBS jobs for MPASWF stages.
+
+The PBS integration intentionally exposes only the scheduler behavior required
+by the current workflow: deterministic script generation, ``qsub`` submission,
+and polling with ``qstat -f`` until the job disappears from the scheduler.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,17 @@ from .ui import Spinner, status
 
 @dataclass(frozen=True)
 class PBSJob:
-    """Rendered PBS job metadata."""
+    """Store paths associated with one rendered PBS job.
+
+    Parameters
+    ----------
+    script : pathlib.Path
+        Generated PBS submission script.
+    stdout : pathlib.Path
+        Scheduler standard-output log path declared in the script.
+    stderr : pathlib.Path
+        Scheduler standard-error log path declared in the script.
+    """
 
     script: Path
     stdout: Path
@@ -24,7 +39,30 @@ class PBSJob:
 
 
 def _argv(raw: object, context: Mapping[str, str], label: str) -> list[str]:
-    """Render one configured command list."""
+    """Validate and render a configured command argument list.
+
+    Parameters
+    ----------
+    raw : object
+        Candidate command representation expected to be a non-empty list of
+        strings.
+    context : mapping of str to str
+        Placeholder values used to render every command token.
+    label : str
+        Configuration field name included in validation errors.
+
+    Returns
+    -------
+    list[str]
+        Rendered command tokens.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``raw`` is not a non-empty list of strings.
+    ConfigurationError
+        Propagated when a token references an unknown placeholder.
+    """
     if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
         raise ValueError(f"{label} must be a non-empty list of strings.")
     return [render(item, context) for item in raw]
@@ -42,9 +80,47 @@ def render_pbs_job(
 ) -> PBSJob:
     """Render a PBS script for one MPAS executable.
 
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration containing the ``pbs`` section.
+    run_dir : pathlib.Path
+        Stage directory in which the generated job executes.
+    job_name : str
+        PBS job name written to the ``#PBS -N`` directive.
+    executable : pathlib.Path
+        MPAS executable appended to the configured MPI launcher.
+    walltime : str
+        PBS wall-clock limit written to ``#PBS -l walltime``.
+    context : mapping of str to str
+        Existing stage placeholders. The function adds ``mpi_ranks`` and
+        ``executable`` before rendering the launcher.
+    queue : str, optional
+        Queue override. The configured default ``pbs.queue`` is used when
+        omitted.
+
+    Returns
+    -------
+    PBSJob
+        Paths to the generated script and scheduler log files.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``pbs`` is not a mapping or ``pbs.launcher`` is malformed.
+    KeyError
+        Naturally propagated when required PBS resource fields are absent.
+    ConfigurationError
+        Propagated when a launcher token references an unknown placeholder.
+    OSError
+        Propagated when directories or the script file cannot be created.
+
+    Notes
+    -----
     The script loads only explicitly configured modules and exports only the
     configured environment variables. The command is passed through the
-    configured MPI launcher.
+    configured MPI launcher and is joined as plain shell text without additional
+    quoting.
     """
     pbs = value(config, "pbs")
     if not isinstance(pbs, dict):
@@ -79,7 +155,30 @@ def render_pbs_job(
 
 
 def submit_pbs(config: WorkflowConfig, script: Path) -> str:
-    """Submit a PBS script and return the scheduler job identifier visibly."""
+    """Submit a PBS script and return its scheduler identifier.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded configuration containing optional ``pbs.qsub_command`` tokens.
+    script : pathlib.Path
+        PBS script passed as the final argument to the submission command.
+
+    Returns
+    -------
+    str
+        Non-empty job identifier written by ``qsub`` to standard output.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``pbs.qsub_command`` is not a list of strings.
+    OSError
+        Propagated when the submission command cannot be started.
+    RuntimeError
+        Raised when submission returns a nonzero status or succeeds without
+        producing a job identifier.
+    """
     qsub = value(config, "pbs.qsub_command", required=False, default=["qsub"])
     if not isinstance(qsub, list) or not all(isinstance(item, str) for item in qsub):
         raise ValueError("pbs.qsub_command must be a list of strings.")
@@ -97,17 +196,47 @@ def submit_pbs(config: WorkflowConfig, script: Path) -> str:
 
 
 def _job_state(output: str) -> str | None:
-    """Extract ``job_state`` from `qstat -f` output when available."""
+    """Extract a PBS ``job_state`` code from ``qstat -f`` output.
+
+    Parameters
+    ----------
+    output : str
+        Standard output produced by ``qstat -f``.
+
+    Returns
+    -------
+    str or None
+        Single alphabetic state code, or ``None`` when no matching field is
+        present.
+    """
     match = re.search(r"(?m)^\s*job_state\s*=\s*([A-Za-z])\s*$", output)
     return match.group(1) if match else None
 
 
 def wait_pbs(config: WorkflowConfig, job_id: str) -> None:
-    """Wait visibly until `qstat -f <job_id>` no longer finds the job.
+    """Poll PBS until a job is no longer reported by ``qstat``.
 
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded configuration containing optional ``pbs.qstat_command`` and
+        ``pbs.poll_seconds`` values.
+    job_id : str
+        Scheduler identifier appended to the configured query command.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``pbs.qstat_command`` is not a list of strings.
+    OSError
+        Propagated when a scheduler query cannot be started.
+
+    Notes
+    -----
     The spinner rotates between scheduler polls and updates its message with the
-    latest PBS state (for example ``Q`` or ``R``). Output validation remains
-    the authoritative success check after scheduler completion.
+    latest PBS state, such as ``Q`` or ``R``. Any nonzero ``qstat`` return code
+    is interpreted as the job no longer being listed. Output validation by the
+    calling workflow remains the authoritative success check.
     """
     qstat = value(config, "pbs.qstat_command", required=False, default=["qstat", "-f"])
     if not isinstance(qstat, list) or not all(isinstance(item, str) for item in qstat):
