@@ -1,4 +1,9 @@
-"""Subprocess execution helpers with persistent logs and terminal progress."""
+"""Execute external commands with persistent logs and terminal progress.
+
+The helpers in this module run already-tokenized commands without shell
+interpretation. Standard output and standard error are retained in separate
+UTF-8 log files while the terminal receives concise progress information.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,21 @@ from .ui import Spinner, status
 
 @dataclass(frozen=True)
 class CommandResult:
-    """Recorded result of one external process invocation."""
+    """Record the result and log locations of one external process.
+
+    Parameters
+    ----------
+    argv : tuple of str
+        Fully tokenized command passed to :func:`subprocess.run`.
+    cwd : pathlib.Path
+        Working directory used by the child process.
+    returncode : int
+        Exit status returned by the child process.
+    stdout_log : pathlib.Path
+        File containing the captured standard output.
+    stderr_log : pathlib.Path
+        File containing the captured standard error.
+    """
 
     argv: tuple[str, ...]
     cwd: Path
@@ -31,7 +50,7 @@ def run_command(
     environment: Mapping[str, str] | None = None,
     label: str | None = None,
 ) -> CommandResult:
-    """Run a command without shell evaluation, logs, or silent waiting.
+    """Run a command without shell evaluation or silent waiting.
 
     A braille spinner is shown for terminal users while stdout and stderr are
     captured into persistent log files. This deliberately avoids streaming a
@@ -40,27 +59,43 @@ def run_command(
     Parameters
     ----------
     argv : iterable of str
-        Fully tokenized command. Shell quoting is not interpreted.
+        Fully tokenized command. Shell quoting and expansion are not
+        interpreted.
     cwd : pathlib.Path
-        Working directory passed to the child process.
+        Working directory passed to the child process. It is created when
+        absent.
     logs_dir : pathlib.Path
-        Directory receiving ``<name>.stdout.log`` and ``<name>.stderr.log``.
+        Directory receiving ``<name>.stdout.log`` and
+        ``<name>.stderr.log``. It is created when absent.
     name : str
-        Stable log-file prefix.
+        Stable prefix used for both log-file names.
     environment : mapping of str to str, optional
-        Optional environment additions or replacements.
+        Complete environment mapping passed to the child process. When
+        omitted, the current process environment is inherited.
     label : str, optional
-        Human-readable activity shown in terminal progress output.
+        Human-readable activity shown in terminal progress output. By default,
+        ``name`` is displayed with underscores replaced by spaces.
 
     Returns
     -------
     CommandResult
-        Process metadata and paths to captured logs.
+        Process metadata and paths to the captured logs.
 
     Raises
     ------
+    ValueError
+        Raised when ``argv`` contains no command token.
+    OSError
+        Propagated when the child process cannot be started.
     RuntimeError
-        Raised after logs are written when the external process fails.
+        Raised after logs are written when the external process returns a
+        nonzero status.
+
+    Notes
+    -----
+    When ``environment`` is provided, it replaces rather than augments the
+    inherited process environment because it is passed directly as ``env`` to
+    :func:`subprocess.run`.
     """
     tokens = tuple(str(item) for item in argv)
     if not tokens:
