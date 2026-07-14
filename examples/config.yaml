@@ -5,13 +5,17 @@ paths:
   work_dir: /p/projetos/monan_das/USER/work/mpaswf
   # Output directory created by the one-time static interpolation stage.
   static_dir: /p/projetos/monan_das/USER/work/mpaswf/static
+  # Each GFS input is expected below <gfs_dir>/<YYYYMMDDHH>/<file_template>.
   gfs_dir: /p/projetos/monan_das/USER/data/gfs
   cdct_templates_dir: /p/projetos/monan_das/USER/cdct/templates
 
 executables:
-  wps_dir: /p/projetos/monan_das/USER/apps/WPS
-  mpas_init: /p/projetos/monan_das/USER/apps/mpas_init_atmosphere
-  mpas_atmosphere: /p/projetos/monan_das/USER/apps/mpas_atmosphere
+  # Preferred: MONAN-JEDI installation root containing bin/ and share/wps/.
+  # A direct binary directory containing ungrib.exe and link_grib.csh is also
+  # accepted for compatibility with standalone or legacy WPS installations.
+  wps_dir: /p/projetos/monan_das/USER/builds/monan-jedi
+  mpas_init: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_init_atmosphere
+  mpas_atmosphere: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_atmosphere
 
 campaign:
   start_valid_time: "2026-06-22T00:00:00Z"
@@ -31,7 +35,9 @@ gfs:
 wps:
   # The output must match the exact WPS/CD-CT initialization contract.
   output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
-  vtable: "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
+  # ``wps_root`` is resolved from executables.wps_dir. The stable MONAN-JEDI
+  # publication exposes the selected Vtable through share/wps/Vtable.
+  vtable: "{wps_root}/share/wps/Vtable"
   namelist_target: namelist.wps
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
   ungrib_command: ["./ungrib.exe"]
