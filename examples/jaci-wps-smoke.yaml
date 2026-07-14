@@ -1,49 +1,39 @@
-# Minimal CD-CT-derived MPAS workflow configuration.
-# Replace every absolute path before using this file.
+# JACI functional smoke test for the WPS runtime published by MONAN-JEDI.
+# Replace USER and cdct_templates_dir before running.
+#
+# This single valid time requires initialization analyses at 2026062200 and
+# 2026062300 because the campaign uses f024 and f048 forecasts.
 
 paths:
-  work_dir: /p/projetos/monan_das/USER/work/mpaswf
-  # Output directory created by the one-time static interpolation stage.
-  static_dir: /p/projetos/monan_das/USER/work/mpaswf/static
-  # Each GFS input is expected below <gfs_dir>/<YYYYMMDDHH>/<file_template>.
-  gfs_dir: /p/projetos/monan_das/USER/data/gfs
+  work_dir: /p/projetos/monan_das/USER/work/mpaswf-wps-smoke
+  static_dir: /p/projetos/monan_das/USER/work/mpaswf-wps-smoke/static
+  gfs_dir: /p/projetos/monan_das/USER/work/nmc_bmatrix_20260622_20260625/inputs/gfs
   cdct_templates_dir: /p/projetos/monan_das/USER/cdct/templates
 
 executables:
-  # Preferred: MONAN-JEDI installation root containing bin/ and share/wps/.
-  # A direct binary directory containing ungrib.exe and link_grib.csh is also
-  # accepted for compatibility with standalone or legacy WPS installations.
   wps_dir: /p/projetos/monan_das/USER/builds/monan-jedi
   mpas_init: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_init_atmosphere
   mpas_atmosphere: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_atmosphere
 
 campaign:
-  start_valid_time: "2026-06-22T00:00:00Z"
-  end_valid_time: "2026-06-25T18:00:00Z"
+  start_valid_time: "2026-06-24T00:00:00Z"
+  end_valid_time: "2026-06-24T00:00:00Z"
   interval_hours: 6
   leads_hours: [24, 48]
 
-# The first version intentionally assumes one analysis GRIB file per
-# initialization. Expand this list later only when the CD-CT case requires it.
 gfs:
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
-  # Leave url_template empty when files already exist in gfs_dir.
-  # url_template: "https://example.invalid/gfs.{init_yyyymmddhh}/{gfs_file}"
   url_template: null
   minimum_size_bytes: 1048576
 
 wps:
-  # The output must match the exact WPS/CD-CT initialization contract.
   output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
-  # ``wps_root`` is resolved from executables.wps_dir. The stable MONAN-JEDI
-  # publication exposes the selected Vtable through share/wps/Vtable.
   vtable: "{wps_root}/share/wps/Vtable"
   namelist_target: namelist.wps
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
   ungrib_command: ["./ungrib.exe"]
 
 products:
-  # These names must be aligned with the CD-CT streams files.
   init_state_template: "x1.10242.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc"
   restart_template: "restart.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
   da_state_template: "mpasout.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
@@ -57,19 +47,14 @@ templates:
   forecast_namelist: "namelist.atmosphere.in"
   forecast_streams: "streams.atmosphere.in"
 
-# This stage generates the mesh-level static product once, then reuses it.
-# ``links`` contains fixed mesh and support assets, not the generated product.
+# Required by the complete MPASWF schema, but not executed by phase prepare.
 static:
   reference_time: "2010-10-23T00:00:00Z"
   product_template: "x1.10242.static.nc"
-  links:
-    - source: /p/projetos/monan_das/USER/mesh/x1.10242.grid.nc
-      target: "x1.10242.grid.nc"
-    - source: /p/projetos/monan_das/USER/mesh/x1.10242.graph.info.part.128
-      target: "x1.10242.graph.info.part.128"
+  links: []
 
 execution:
-  backend: pbs  # local or pbs
+  backend: pbs
 
 pbs:
   queue: pesqmini

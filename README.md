@@ -80,6 +80,72 @@ The configured static links are fixed mesh, partition, invariant, table, and
 support files shared by MPAS stages. They must **not** include the generated
 `x1.10242.static.nc` file.
 
+## MONAN-JEDI WPS runtime
+
+MONAN-JEDI owns the WPS build and publishes a validated runtime. MPASWF consumes
+that runtime during `prepare`; it does not build or patch WPS itself.
+
+The preferred configuration points `executables.wps_dir` to the MONAN-JEDI
+installation root:
+
+```yaml
+executables:
+  wps_dir: /p/projetos/monan_das/USER/builds/monan-jedi
+  mpas_init: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_init_atmosphere
+  mpas_atmosphere: /p/projetos/monan_das/USER/builds/monan-jedi/bin/mpas_atmosphere
+
+wps:
+  vtable: "{wps_root}/share/wps/Vtable"
+```
+
+MPASWF resolves both supported layouts:
+
+- an installation root containing `bin/ungrib.exe`, `bin/link_grib.csh`, and
+  `share/wps/Vtable`;
+- a direct binary directory containing `ungrib.exe` and `link_grib.csh`, for
+  compatibility with legacy or standalone WPS installations.
+
+The render context exposes `wps_root`, `wps_bin_dir`, and the backward-compatible
+`wps_dir` alias. The per-cycle `.mpaswf/wps.json` record stores the resolved
+runtime, Vtable, GFS input, and output paths.
+
+A valid local GFS input is expected at:
+
+```text
+<paths.gfs_dir>/<YYYYMMDDHH>/<gfs.file_template>
+```
+
+For example:
+
+```text
+.../inputs/gfs/2026062200/gfs.t00z.pgrb2.0p25.f000
+```
+
+The campaign describes **valid times**. With `leads_hours: [24, 48]`, one valid
+time requires GFS/WPS products at valid time minus 24 hours and minus 48 hours.
+A minimal functional test for valid time `2026-06-24T00:00:00Z` therefore needs
+the `2026062200` and `2026062300` GFS analyses.
+
+Run the real GRIB2-to-`FILE:*` stage with:
+
+```bash
+mpaswf run --phase prepare --config config.yaml
+```
+
+To regenerate WPS products while retaining valid local GFS inputs:
+
+```bash
+mpaswf run --phase prepare --config config.yaml --force
+```
+
+`--force` removes stale `GRIBFILE.*`, `FILE:*`, and `PFILE:*` products and reruns
+`link_grib` plus `ungrib`. It does not force a GFS redownload. Successful outputs
+are written below:
+
+```text
+<paths.work_dir>/wps/<YYYYMMDDHH>/FILE:<YYYY-MM-DD_HH>
+```
+
 ## Installation
 
 ```bash
@@ -120,4 +186,3 @@ NO_COLOR=1 mpaswf run --phase prepare --config config.yaml
 
 When stdout is redirected, MPASWF writes durable `[RUN]`, `[OK]`, and `[FAIL]`
 lines instead, so batch logs remain readable without terminal control codes.
-
