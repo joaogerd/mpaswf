@@ -128,6 +128,7 @@ def execute_forecast(
         walltime=walltime,
         context=context,
         queue=string(config, "pbs.queue_forecast", required=False, default=string(config, "pbs.queue")),
+        script_name=f"qsub_forecast_{request.init_time.strftime('%Y%m%d%H')}_f{request.lead_hours:03d}.pbs",
     )
     payload: dict[str, object] = {
         "init_time": context["init_time"],
