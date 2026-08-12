@@ -21,6 +21,9 @@ mpaswf run --phase prepare  --config config.yaml
 mpaswf run --phase init     --config config.yaml
 mpaswf run --phase forecast --config config.yaml
 mpaswf run --phase manifest --config config.yaml
+
+# Real scheduler smoke: qsub + qstat + one MPI rank on a compute node.
+mpaswf pbs-smoke --config config.yaml
 ```
 
 `prepare` reuses a valid local GFS file or downloads the missing file when a
@@ -55,6 +58,67 @@ and `da_state` products. `manifest` validates every requested pair and writes:
 
 ```text
 <work_dir>/products/mpas-forecast-manifest.tsv
+```
+
+## PBS script names
+
+Rendered PBS submission files are stage-specific instead of the former generic
+`job.pbs` name:
+
+```text
+static/
+  qsub_static.pbs
+
+init/2018041500/
+  qsub_init_2018041500.pbs
+
+forecast/2018041500/f024/
+  qsub_forecast_2018041500_f024.pbs
+
+forecast/2018041500/f048/
+  qsub_forecast_2018041500_f048.pbs
+```
+
+The scheduler `#PBS -N` names remain compact, while the files on disk are
+explicit enough to identify their stage, initialization time, and forecast lead.
+
+## Real PBS smoke
+
+`pbs-smoke` performs a real scheduler round trip; it is not a mocked pytest.
+It deliberately requests only one CPU and one MPI rank, then:
+
+1. renders `<work_dir>/.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs`;
+2. submits it through the configured `pbs.qsub_command`;
+3. monitors it through the configured `pbs.qstat_command` with the same live
+   state/elapsed/countdown presentation used by normal MPAS jobs;
+4. loads the configured PBS modules and environment;
+5. launches one MPI rank running `/bin/hostname` on a compute node;
+6. requires `<work_dir>/.mpaswf/pbs-smoke/pbs-smoke.ok` before reporting success.
+
+Run it on the PBS login node before a campaign:
+
+```bash
+mpaswf pbs-smoke --config config.yaml
+```
+
+Typical interactive output is:
+
+```text
+• PBS smoke: rendered .../.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs.
+• PBS: submitting qsub_pbs_smoke.pbs
+✓ PBS: submitted qsub_pbs_smoke.pbs as 328134.pbs-ha (00:00)
+⠋ PBS job 328134.pbs-ha: state R elapsed 00:04 next check in 25s
+✓ PBS job 328134.pbs-ha: no longer listed; validating outputs
+✓ PBS smoke: compute-node execution validated by .../pbs-smoke.ok.
+```
+
+Optional smoke-specific settings can be added under `pbs`; otherwise the normal
+queue is used and the smoke walltime defaults to two minutes:
+
+```yaml
+pbs:
+  queue_smoke: pesqmini
+  walltime_smoke: "00:02:00"
 ```
 
 ## Configuration scope
@@ -120,4 +184,3 @@ NO_COLOR=1 mpaswf run --phase prepare --config config.yaml
 
 When stdout is redirected, MPASWF writes durable `[RUN]`, `[OK]`, and `[FAIL]`
 lines instead, so batch logs remain readable without terminal control codes.
-
