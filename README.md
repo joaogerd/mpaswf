@@ -1,8 +1,8 @@
 # MPASWF
 
-`mpaswf` is a deliberately small MPAS-only workflow derived from a validated
-CD-CT reference case. It produces the MPAS products needed by a later NMC/BFLOW
-pipeline, but it does not run BFLOW, BUMP, JEDI, or observation processing.
+`mpaswf` is a small MPAS-only workflow that prepares GFS/WPS inputs, generates
+MPAS initial conditions, runs f024/f048 forecasts, and writes the neutral
+forecast-pair manifest consumed by MPAS-BMatrix.
 
 ```text
 GFS f000
@@ -13,6 +13,82 @@ GFS f000
   -> restart + da_state products
   -> neutral MPAS manifest
 ```
+
+It does **not** run BFLOW, BUMP, JEDI, observation processing, or B-matrix
+calibration.
+
+## Installation
+
+```bash
+python -m pip install --no-deps -e .
+```
+
+For development:
+
+```bash
+python -m pip install -e '.[dev]'
+pytest
+```
+
+## Configuration
+
+The recommended layout mirrors MPAS-BMatrix and separates machine-specific
+settings from the workflow/campaign contract:
+
+```text
+configs/
+├── jaci-x1.10242.yaml   # paths, executables, mesh assets, PBS/MPI
+└── mpas-x1.10242.yaml   # campaign, GFS/WPS, products, templates
+```
+
+`configs/jaci-x1.10242.yaml` references the second file with:
+
+```yaml
+workflow:
+  configuration: mpas-x1.10242.yaml
+```
+
+MPASWF loads both files and deep-merges them internally. **The command-line
+interface is unchanged**: always pass only one configuration path.
+
+```bash
+CONFIG=configs/jaci-x1.10242.yaml
+
+mpaswf run --phase prepare  --config "$CONFIG"
+mpaswf run --phase init     --config "$CONFIG" --submit --wait
+mpaswf run --phase forecast --config "$CONFIG" --submit --wait
+mpaswf run --phase manifest --config "$CONFIG"
+```
+
+The historical all-in-one YAML remains fully supported. `examples/config.yaml`
+is retained as the compatibility/reference example, so existing scripts and the
+MPAS-BMatrix forecast-pair tutorial do not need to change their invocation.
+
+See [docs/configuration.md](docs/configuration.md) for the complete description
+and [configs/README.md](configs/README.md) for the configuration directory.
+
+## f024/f048 campaign contract
+
+`campaign.start_valid_time` and `campaign.end_valid_time` are **valid times**,
+not initialization times. With:
+
+```yaml
+campaign:
+  start_valid_time: "2026-06-22T00:00:00Z"
+  end_valid_time: "2026-06-25T00:00:00Z"
+  interval_hours: 24
+  leads_hours: [24, 48]
+```
+
+for each valid time `T`, MPASWF produces:
+
+```text
+f048 initialized at T - 48 h, valid at T
+f024 initialized at T - 24 h, valid at T
+```
+
+The final manifest therefore contains same-valid-time NMC pairs expected by
+MPAS-BMatrix.
 
 ## Public interface
 
@@ -26,85 +102,90 @@ mpaswf run --phase manifest --config config.yaml
 mpaswf pbs-smoke --config config.yaml
 ```
 
-`prepare` reuses a valid local GFS file or downloads the missing file when a
-URL template is configured. It then runs `link_grib` and `ungrib`.
+### `prepare`
 
-`init` owns the complete MPAS initialization chain:
+Reuses or acquires required GFS files and executes WPS `link_grib`/`ungrib` for
+each initialization time.
 
-1. generate `x1.<mesh>.static.nc` once if it is absent;
-2. reuse that validated static product if it already exists;
-3. generate one dynamic MPAS initial state for every required initialization
-   time.
+### `init`
 
-For a PBS backend, a missing static product creates a dependency boundary:
+Generates the one-time mesh-level static product when missing, then generates
+the date-dependent MPAS initial states.
+
+For PBS, a robust non-blocking campaign can submit the static boundary first
+and rerun after it completes:
 
 ```bash
-# Render the static PBS job only.
-mpaswf run --phase init --config config.yaml
-
-# Submit static interpolation. Re-run after it completes.
-mpaswf run --phase init --config config.yaml --submit
-
-# Once static validates, render or submit dynamic initialization jobs.
-mpaswf run --phase init --config config.yaml
+mpaswf run --phase init --config "$CONFIG" --submit
+mpaswf run --phase init --config "$CONFIG" --submit
 ```
 
-`--submit --wait` submits the static stage, validates it, and then advances to
-dynamic initialization in the same invocation. It is useful for small smoke
-tests; normal campaigns can use separate submissions for scheduler control.
+For a smoke/small campaign:
 
-`forecast` requires validated initial states and creates f024/f048 `restart`
-and `da_state` products. `manifest` validates every requested pair and writes:
+```bash
+mpaswf run --phase init --config "$CONFIG" --submit --wait
+```
+
+### `forecast`
+
+Runs the requested f024/f048 forecasts and produces both `restart` and
+`da_state` products:
+
+```bash
+mpaswf run --phase forecast --config "$CONFIG" --submit --wait
+```
+
+### `manifest`
+
+Validates the forecast products and writes:
 
 ```text
 <work_dir>/products/mpas-forecast-manifest.tsv
 ```
 
-## PBS script names
-
-Rendered PBS submission files are stage-specific instead of the former generic
-`job.pbs` name:
+with columns:
 
 ```text
-static/
-  qsub_static.pbs
-
-init/2018041500/
-  qsub_init_2018041500.pbs
-
-forecast/2018041500/f024/
-  qsub_forecast_2018041500_f024.pbs
-
-forecast/2018041500/f048/
-  qsub_forecast_2018041500_f048.pbs
+valid_time    f048_state    f024_state    f048_restart    f024_restart
 ```
 
-The scheduler `#PBS -N` names remain compact, while the files on disk are
-explicit enough to identify their stage, initialization time, and forecast lead.
+This file is the hand-off to MPAS-BMatrix.
+
+## PBS script names
+
+Rendered submission files are stage-specific:
+
+```text
+static/qsub_static.pbs
+init/2018041500/qsub_init_2018041500.pbs
+forecast/2018041500/f024/qsub_forecast_2018041500_f024.pbs
+forecast/2018041500/f048/qsub_forecast_2018041500_f048.pbs
+```
+
+The scheduler `#PBS -N` names remain compact while the files on disk identify
+the stage, cycle, and forecast lead.
 
 ## Real PBS smoke
 
-`pbs-smoke` performs a real scheduler round trip; it is not a mocked pytest.
-It deliberately requests only one CPU and one MPI rank, then:
-
-1. renders `<work_dir>/.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs`;
-2. submits it through the configured `pbs.qsub_command`;
-3. monitors it through the configured `pbs.qstat_command` with the same live
-   state/elapsed/countdown presentation used by normal MPAS jobs;
-4. loads the configured PBS modules and environment;
-5. launches one MPI rank running `/bin/hostname` on a compute node;
-6. requires `<work_dir>/.mpaswf/pbs-smoke/pbs-smoke.ok` before reporting success.
-
-Run it on the PBS login node before a campaign:
+Before a campaign on the PBS login node:
 
 ```bash
-mpaswf pbs-smoke --config config.yaml
+mpaswf pbs-smoke --config "$CONFIG"
 ```
 
-Typical interactive output is:
+The smoke performs a real scheduler round trip. It:
+
+1. renders `<work_dir>/.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs`;
+2. submits through the configured `qsub` command;
+3. monitors the job through the configured `qstat` command;
+4. loads the configured modules/environment;
+5. requests only 1 CPU / 1 MPI rank and runs `/bin/hostname` on a compute node;
+6. requires `<work_dir>/.mpaswf/pbs-smoke/pbs-smoke.ok` before succeeding.
+
+Typical output:
 
 ```text
-• PBS smoke: rendered .../.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs.
+• PBS smoke: rendered .../qsub_pbs_smoke.pbs.
 • PBS: submitting qsub_pbs_smoke.pbs
 ✓ PBS: submitted qsub_pbs_smoke.pbs as 328134.pbs-ha (00:00)
 ⠋ PBS job 328134.pbs-ha: state R elapsed 00:04 next check in 25s
@@ -112,75 +193,23 @@ Typical interactive output is:
 ✓ PBS smoke: compute-node execution validated by .../pbs-smoke.ok.
 ```
 
-Optional smoke-specific settings can be added under `pbs`; otherwise the normal
-queue is used and the smoke walltime defaults to two minutes:
-
-```yaml
-pbs:
-  queue_smoke: pesqmini
-  walltime_smoke: "00:02:00"
-```
-
-## Configuration scope
-
-The first configuration is intentionally small. The scientific details remain
-in CD-CT-derived templates. The static section describes a product generated by
-MPASWF, not an input copied from somewhere else:
-
-```yaml
-paths:
-  work_dir: /path/to/campaign
-  static_dir: /path/to/campaign/static
-
-static:
-  reference_time: "2010-10-23T00:00:00Z"
-  product_template: "x1.10242.static.nc"
-  links:
-    - source: /path/to/x1.10242.grid.nc
-      target: x1.10242.grid.nc
-```
-
-The configured static links are fixed mesh, partition, invariant, table, and
-support files shared by MPAS stages. They must **not** include the generated
-`x1.10242.static.nc` file.
-
-## Installation
-
-```bash
-python -m pip install --no-deps -e .
-```
-
-For development tests:
-
-```bash
-python -m pip install -e '.[dev]'
-pytest
-```
-
 ## Terminal progress
 
-Long-running actions are never silent. In an interactive terminal, MPASWF uses
-a compact braille spinner for GFS downloads, WPS commands, local MPAS commands,
-PBS submission, and PBS waiting. The status text names the active cycle or job
-and updates download byte counts and PBS scheduler state.
-
-The terminal palette is intentionally restrained: cyan/blue marks active work,
-green marks completed actions, yellow marks reuse or warnings, red marks failures,
-and gray de-emphasizes elapsed time and log paths.
+Interactive sessions use a compact braille spinner for long-running operations.
+PBS waiting shows the scheduler state, elapsed time, and countdown until the next
+real `qstat` query. Redirected output uses durable `[RUN]`, `[OK]`, and `[FAIL]`
+lines.
 
 Color follows terminal conventions:
 
 ```bash
-# Default: color only in an interactive terminal.
-mpaswf run --phase prepare --config config.yaml
-
-# Force colors, including in a captured terminal session.
-MPASWF_COLOR=always mpaswf run --phase prepare --config config.yaml
-
-# Disable colors explicitly (NO_COLOR takes precedence).
-MPASWF_COLOR=never mpaswf run --phase prepare --config config.yaml
-NO_COLOR=1 mpaswf run --phase prepare --config config.yaml
+MPASWF_COLOR=always mpaswf run --phase prepare --config "$CONFIG"
+MPASWF_COLOR=never  mpaswf run --phase prepare --config "$CONFIG"
+NO_COLOR=1          mpaswf run --phase prepare --config "$CONFIG"
 ```
 
-When stdout is redirected, MPASWF writes durable `[RUN]`, `[OK]`, and `[FAIL]`
-lines instead, so batch logs remain readable without terminal control codes.
+## Design documentation
+
+- [Configuration](docs/configuration.md)
+- [Design](docs/design.md)
+- [CD-CT mapping](docs/cdct_mapping.md)
