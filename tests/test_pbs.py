@@ -1,8 +1,11 @@
-"""Tests for MPASWF PBS terminal status formatting."""
+"""Tests for MPASWF PBS terminal status and script rendering."""
 
 from __future__ import annotations
 
-from mpaswf.pbs import _format_elapsed, _wait_message
+from pathlib import Path
+
+from mpaswf.config import WorkflowConfig
+from mpaswf.pbs import _format_elapsed, _wait_message, render_pbs_job
 
 
 def test_format_elapsed_matches_bmatrix_clock_style() -> None:
@@ -16,3 +19,39 @@ def test_wait_message_matches_bmatrix_live_status() -> None:
     assert _wait_message("328134.pbs-ha", "R", 239.9, 0.8) == (
         "PBS job 328134.pbs-ha: state R elapsed 03:59 next check in 0s"
     )
+
+
+def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
+    """Rendered PBS files keep the informative stage-specific submission name."""
+    config = WorkflowConfig(
+        path=tmp_path / "config.yaml",
+        data={
+            "pbs": {
+                "queue": "pesqmini",
+                "select": 1,
+                "ncpus": 128,
+                "mpiprocs": 128,
+                "launcher": ["mpiexec", "-n", "{mpi_ranks}"],
+                "modules": [],
+                "environment": {},
+            }
+        },
+    )
+    executable = tmp_path / "mpas_init_atmosphere"
+    run_dir = tmp_path / "init" / "2018041500"
+
+    job = render_pbs_job(
+        config,
+        run_dir=run_dir,
+        job_name="mpasinit_2018041500",
+        executable=executable,
+        walltime="00:30:00",
+        context={},
+        script_name="qsub_init_2018041500.pbs",
+    )
+
+    assert job.script.name == "qsub_init_2018041500.pbs"
+    assert job.script.parent == run_dir
+    rendered = job.script.read_text(encoding="utf-8")
+    assert "#PBS -N mpasinit_2018041500" in rendered
+    assert "mpiexec -n 128" in rendered
