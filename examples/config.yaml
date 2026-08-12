@@ -1,5 +1,18 @@
-# Minimal CD-CT-derived MPAS workflow configuration.
-# Replace every absolute path before using this file.
+# ==============================================================================
+# MPASWF — EXEMPLO AUTOCONTIDO (FORMATO LEGADO/COMPATÍVEL)
+# ==============================================================================
+#
+# Este arquivo mantém TODOS os blocos em um único YAML. Ele continua sendo
+# totalmente suportado para preservar scripts existentes e integrações externas.
+#
+# Para novas campanhas, prefira a organização documentada em `configs/`:
+#
+#   configs/jaci-x1.10242.yaml   -> plataforma/PBS/caminhos
+#   configs/mpas-x1.10242.yaml   -> campanha/contrato do workflow
+#
+# A forma de executar é idêntica nos dois casos: apenas o caminho passado a
+# --config muda.
+# ==============================================================================
 
 paths:
   work_dir: /p/projetos/monan_das/USER/work/mpaswf
