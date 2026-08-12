@@ -19,7 +19,7 @@
 # NÃO muda: o usuário continua fornecendo apenas este arquivo em --config.
 #
 # Antes de usar, revise principalmente os blocos PATHS, EXECUTABLES e
-# STATIC.LINKS. Variáveis de ambiente como ${USER} são expandidas pelo MPASWF.
+# STATIC.LINKS. Variáveis de ambiente como $USER são expandidas pelo MPASWF.
 #
 # ==============================================================================
 
@@ -36,19 +36,19 @@ workflow:
 # ------------------------------------------------------------------------------
 paths:
   # Raiz de todos os diretórios de execução e do manifesto final.
-  work_dir: /p/projetos/monan_das/${USER}/work/mpaswf
+  work_dir: /p/projetos/monan_das/$USER/work/mpaswf
 
   # Diretório onde será gerado/reutilizado x1.10242.static.nc.
   # Pode ficar dentro de work_dir, mas é explícito para permitir reutilização.
-  static_dir: /p/projetos/monan_das/${USER}/work/mpaswf/static
+  static_dir: /p/projetos/monan_das/$USER/work/mpaswf/static
 
   # Estrutura esperada:
   #   <gfs_dir>/<YYYYMMDDHH>/gfs.tHHz.pgrb2.0p25.f000
-  gfs_dir: /p/projetos/monan_das/${USER}/data/gfs
+  gfs_dir: /p/projetos/monan_das/$USER/data/gfs
 
   # Diretório contendo os sete templates declarados em mpas-x1.10242.yaml.
   # Ajuste para o diretório CD-CT/MPAS validado usado na campanha.
-  cdct_templates_dir: /p/projetos/monan_das/${USER}/projects/mpaswf-templates/x1.10242
+  cdct_templates_dir: /p/projetos/monan_das/$USER/projects/mpaswf-templates/x1.10242
 
 # ------------------------------------------------------------------------------
 # 3. EXECUTÁVEIS
@@ -57,11 +57,11 @@ paths:
 # campanha. Evite misturar executáveis de builds diferentes entre init/forecast.
 executables:
   # Raiz da instalação WPS. Deve conter link_grib.csh, ungrib.exe e Vtables.
-  wps_dir: /p/projetos/monan_das/${USER}/data/mpas-bmatrix-global/external/WPS/WPS-4.6.0
+  wps_dir: /p/projetos/monan_das/$USER/data/mpas-bmatrix-global/external/WPS/WPS-4.6.0
 
   # Executáveis MPAS compilados no ambiente JACI.
-  mpas_init: /p/projetos/monan_das/${USER}/builds/monan-jedi-mpas/bin/mpas_init_atmosphere
-  mpas_atmosphere: /p/projetos/monan_das/${USER}/builds/monan-jedi-mpas/bin/mpas_atmosphere
+  mpas_init: /p/projetos/monan_das/$USER/builds/monan-jedi-mpas/bin/mpas_init_atmosphere
+  mpas_atmosphere: /p/projetos/monan_das/$USER/builds/monan-jedi-mpas/bin/mpas_atmosphere
 
 # ------------------------------------------------------------------------------
 # 4. ARQUIVOS FIXOS DA MALHA / STATIC
@@ -74,11 +74,11 @@ executables:
 static:
   links:
     # Malha MPAS x1.10242.
-    - source: /p/projetos/monan_das/${USER}/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
+    - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
       target: x1.10242.grid.nc
 
     # Partição correspondente ao número de ranks usado nos jobs normais.
-    - source: /p/projetos/monan_das/${USER}/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
+    - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
       target: x1.10242.graph.info.part.128
 
     # Inclua aqui, quando exigidos pelos templates validados, arquivos fixos
