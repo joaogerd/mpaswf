@@ -1,0 +1,143 @@
+# ==============================================================================
+# MPASWF — CONFIGURAÇÃO DE PLATAFORMA JACI / x1.10242
+# ==============================================================================
+#
+# Este é o arquivo que deve ser passado ao --config quando o MPASWF for usado
+# na JACI. Ele contém somente informações dependentes da máquina:
+#
+#   - caminhos de trabalho e dados;
+#   - executáveis instalados;
+#   - arquivos fixos da malha;
+#   - backend de execução;
+#   - filas, recursos e ambiente PBS.
+#
+# A campanha, nomes de produtos e contrato WPS/MPAS ficam separados em:
+#
+#   mpas-x1.10242.yaml
+#
+# O MPASWF faz o merge dos dois arquivos internamente. A interface de execução
+# NÃO muda: o usuário continua fornecendo apenas este arquivo em --config.
+#
+# Antes de usar, revise principalmente os blocos PATHS, EXECUTABLES e
+# STATIC.LINKS. Variáveis de ambiente como ${USER} são expandidas pelo MPASWF.
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. CONTRATO DO WORKFLOW
+# ------------------------------------------------------------------------------
+# Caminho relativo a este arquivo. Não passe o arquivo de contrato diretamente
+# ao --config: ele não contém os caminhos nem os recursos PBS da plataforma.
+workflow:
+  configuration: mpas-x1.10242.yaml
+
+# ------------------------------------------------------------------------------
+# 2. DIRETÓRIOS DA CAMPANHA
+# ------------------------------------------------------------------------------
+paths:
+  # Raiz de todos os diretórios de execução e do manifesto final.
+  work_dir: /p/projetos/monan_das/${USER}/work/mpaswf
+
+  # Diretório onde será gerado/reutilizado x1.10242.static.nc.
+  # Pode ficar dentro de work_dir, mas é explícito para permitir reutilização.
+  static_dir: /p/projetos/monan_das/${USER}/work/mpaswf/static
+
+  # Estrutura esperada:
+  #   <gfs_dir>/<YYYYMMDDHH>/gfs.tHHz.pgrb2.0p25.f000
+  gfs_dir: /p/projetos/monan_das/${USER}/data/gfs
+
+  # Diretório contendo os sete templates declarados em mpas-x1.10242.yaml.
+  # Ajuste para o diretório CD-CT/MPAS validado usado na campanha.
+  cdct_templates_dir: /p/projetos/monan_das/${USER}/projects/mpaswf-templates/x1.10242
+
+# ------------------------------------------------------------------------------
+# 3. EXECUTÁVEIS
+# ------------------------------------------------------------------------------
+# Estes caminhos devem apontar para a MESMA instalação MPAS usada para a
+# campanha. Evite misturar executáveis de builds diferentes entre init/forecast.
+executables:
+  # Raiz da instalação WPS. Deve conter link_grib.csh, ungrib.exe e Vtables.
+  wps_dir: /p/projetos/monan_das/${USER}/data/mpas-bmatrix-global/external/WPS/WPS-4.6.0
+
+  # Executáveis MPAS compilados no ambiente JACI.
+  mpas_init: /p/projetos/monan_das/${USER}/builds/monan-jedi-mpas/bin/mpas_init_atmosphere
+  mpas_atmosphere: /p/projetos/monan_das/${USER}/builds/monan-jedi-mpas/bin/mpas_atmosphere
+
+# ------------------------------------------------------------------------------
+# 4. ARQUIVOS FIXOS DA MALHA / STATIC
+# ------------------------------------------------------------------------------
+# `static.reference_time` e `static.product_template` vêm do contrato do
+# workflow. Aqui ficam apenas os assets cujo CAMINHO depende da plataforma.
+#
+# IMPORTANTE: NÃO inclua x1.10242.static.nc abaixo. Esse arquivo é saída do
+# estágio static, e não uma entrada a ser linkada.
+static:
+  links:
+    # Malha MPAS x1.10242.
+    - source: /p/projetos/monan_das/${USER}/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
+      target: x1.10242.grid.nc
+
+    # Partição correspondente ao número de ranks usado nos jobs normais.
+    - source: /p/projetos/monan_das/${USER}/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
+      target: x1.10242.graph.info.part.128
+
+    # Inclua aqui, quando exigidos pelos templates validados, arquivos fixos
+    # adicionais: invariant, tabelas, arquivos de física, etc.
+    #
+    # - source: /caminho/para/arquivo_fixo
+    #   target: nome_esperado_no_run_dir
+
+# ------------------------------------------------------------------------------
+# 5. BACKEND DE EXECUÇÃO
+# ------------------------------------------------------------------------------
+# Valores aceitos: local ou pbs.
+# Na JACI, produção e smoke devem usar pbs.
+execution:
+  backend: pbs
+
+# ------------------------------------------------------------------------------
+# 6. PBS / MPI
+# ------------------------------------------------------------------------------
+pbs:
+  # Fila padrão. Pode ser sobrescrita por etapa com queue_static, queue_init e
+  # queue_forecast, se necessário.
+  queue: pesqmini
+
+  # Recursos dos jobs MPAS normais. Estes valores precisam ser consistentes
+  # com o arquivo de partição linkado em static.links.
+  select: 1
+  ncpus: 128
+  mpiprocs: 128
+
+  # Tempos máximos por etapa.
+  walltime_static: "00:20:00"
+  walltime_init: "00:30:00"
+  walltime_forecast: "03:00:00"
+
+  # Smoke real do PBS: sempre 1 CPU / 1 rank, independentemente dos valores
+  # acima. Apenas fila e walltime são configuráveis aqui.
+  queue_smoke: pesqmini
+  walltime_smoke: "00:02:00"
+
+  # Launcher MPI. {mpi_ranks} é preenchido pelo MPASWF.
+  launcher: ["mpiexec", "-n", "{mpi_ranks}"]
+
+  # Comandos do scheduler. Mantê-los como listas permite substituir wrappers
+  # locais sem alterar o Python.
+  qsub_command: ["qsub"]
+  qstat_command: ["qstat", "-f"]
+
+  # Intervalo entre consultas reais ao scheduler. O spinner e a contagem
+  # regressiva continuam sendo atualizados entre essas consultas.
+  poll_seconds: 30
+
+  # Ambiente carregado dentro de cada job PBS.
+  # Ajuste para reproduzir exatamente o ambiente usado na compilação do MPAS.
+  modules:
+    - "module load PrgEnv-gnu"
+    - "module load cray-mpich"
+
+  environment:
+    OMP_NUM_THREADS: "1"
+    FI_CXI_RX_MATCH_MODE: "hybrid"
+    F_UFMTENDIAN: "big"
