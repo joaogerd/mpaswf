@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .config import WorkflowConfig, render, string, value
+from .config import WorkflowConfig, render, resolve_path, string, value
 from .files import ensure_directory
 from .ui import Spinner, status
 
@@ -57,12 +58,15 @@ def render_pbs_job(
     walltime: str,
     context: Mapping[str, str],
     queue: str | None = None,
+    script_name: str | None = None,
 ) -> PBSJob:
     """Render a PBS script for one MPAS executable.
 
     The script loads only explicitly configured modules and exports only the
     configured environment variables. The command is passed through the
-    configured MPI launcher.
+    configured MPI launcher. ``script_name`` gives each rendered submission
+    file a stage-specific, human-readable name instead of the former generic
+    ``job.pbs``.
     """
     pbs = value(config, "pbs")
     if not isinstance(pbs, dict):
@@ -90,7 +94,10 @@ def render_pbs_job(
     for key, item in pbs.get("environment", {}).items():
         lines.append(f"export {key}={item}")
     lines.append(" ".join(command))
-    script = run_dir / "job.pbs"
+    filename = script_name or f"qsub_{job_name}.pbs"
+    if Path(filename).name != filename:
+        raise ValueError("PBS script_name must be a filename, not a path.")
+    script = run_dir / filename
     script.write_text("\n".join(lines) + "\n", encoding="utf-8")
     status(f"PBS {job_name}: rendered {script}.")
     return PBSJob(script=script, stdout=run_dir / "logs" / "pbs.stdout.log", stderr=run_dir / "logs" / "pbs.stderr.log")
@@ -159,3 +166,82 @@ def wait_pbs(config: WorkflowConfig, job_id: str) -> None:
         remaining = next_poll - now
         spinner.update(_wait_message(job_id, state, now - started, remaining))
         time.sleep(min(0.1, max(0.01, remaining)))
+
+
+def run_pbs_smoke(config: WorkflowConfig) -> Path:
+    """Submit and validate a real one-rank PBS smoke job.
+
+    This is intentionally not a mocked/unit-test path. It writes a small PBS
+    script under ``<work_dir>/.mpaswf/pbs-smoke``, submits it with the configured
+    ``qsub``, monitors it with the configured ``qstat`` helper, launches one MPI
+    rank running ``/bin/hostname``, and requires a sentinel file written by the
+    compute node before reporting success.
+    """
+    if string(config, "execution.backend") != "pbs":
+        raise ValueError("pbs-smoke requires execution.backend: pbs.")
+
+    pbs = value(config, "pbs")
+    if not isinstance(pbs, dict):
+        raise ValueError("pbs must be a mapping when execution.backend is pbs.")
+
+    work_dir = resolve_path(config, string(config, "paths.work_dir") or "")
+    run_dir = work_dir / ".mpaswf" / "pbs-smoke"
+    logs_dir = run_dir / "logs"
+    ensure_directory(logs_dir)
+
+    sentinel = run_dir / "pbs-smoke.ok"
+    sentinel.unlink(missing_ok=True)
+    script = run_dir / "qsub_pbs_smoke.pbs"
+    stdout = logs_dir / "pbs-smoke.stdout.log"
+    stderr = logs_dir / "pbs-smoke.stderr.log"
+
+    queue = string(
+        config,
+        "pbs.queue_smoke",
+        required=False,
+        default=string(config, "pbs.queue_static", required=False, default=string(config, "pbs.queue")),
+    )
+    walltime = string(config, "pbs.walltime_smoke", required=False, default="00:02:00") or "00:02:00"
+    launcher = _argv(
+        pbs.get("launcher"),
+        {"mpi_ranks": "1", "executable": "/bin/hostname"},
+        "pbs.launcher",
+    )
+    command = [*launcher, "/bin/hostname"]
+
+    lines = [
+        "#!/bin/bash",
+        "#PBS -N mpaswf_smoke",
+        f"#PBS -q {queue}",
+        "#PBS -l select=1:ncpus=1:mpiprocs=1",
+        f"#PBS -l walltime={walltime}",
+        f"#PBS -o {stdout}",
+        f"#PBS -e {stderr}",
+        "set -euo pipefail",
+        f"cd {shlex.quote(str(run_dir))}",
+        "ulimit -s unlimited",
+    ]
+    for module_line in pbs.get("modules", []):
+        lines.append(str(module_line))
+    for key, item in pbs.get("environment", {}).items():
+        lines.append(f"export {key}={item}")
+    lines.extend(
+        [
+            'echo "MPASWF PBS smoke: compute node $(hostname)"',
+            " ".join(shlex.quote(part) for part in command),
+            f"printf '%s\\n' 'MPASWF PBS smoke OK' > {shlex.quote(str(sentinel))}",
+        ]
+    )
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    status(f"PBS smoke: rendered {script}.")
+
+    job_id = submit_pbs(config, script)
+    wait_pbs(config, job_id)
+    if not sentinel.is_file():
+        raise RuntimeError(
+            "PBS smoke job left the scheduler without producing its success sentinel. "
+            f"Inspect {stdout} and {stderr}."
+        )
+
+    status(f"PBS smoke: compute-node execution validated by {sentinel}.", style="success")
+    return sentinel
