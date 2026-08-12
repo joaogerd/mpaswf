@@ -192,6 +192,7 @@ def execute_static(
         walltime=walltime,
         context=context,
         queue=string(config, "pbs.queue_static", required=False, default=string(config, "pbs.queue")),
+        script_name="qsub_static.pbs",
     )
     payload: dict[str, object] = {
         "reference_time": context["init_time"],
