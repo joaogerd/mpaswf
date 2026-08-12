@@ -1,8 +1,22 @@
-"""Configuration loading, validation, and template rendering helpers."""
+"""Configuration loading, validation, and template rendering helpers.
+
+MPASWF accepts two equivalent configuration layouts:
+
+* one self-contained YAML document (the historical format); or
+* a small platform YAML that points to a workflow contract through
+  ``workflow.configuration``.
+
+The split form mirrors the organization used by MPAS-BMatrix: machine-specific
+paths, executables and PBS settings stay separate from campaign/scientific
+settings.  The public CLI is unchanged; callers still pass exactly one
+``--config`` path.
+"""
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,9 +34,10 @@ class WorkflowConfig:
     Parameters
     ----------
     path : pathlib.Path
-        Absolute path of the YAML file.
+        Absolute path of the platform or self-contained YAML passed to
+        ``--config``.
     data : dict[str, Any]
-        Parsed configuration data.
+        Fully merged, environment-expanded configuration.
     """
 
     path: Path
@@ -30,30 +45,93 @@ class WorkflowConfig:
 
     @property
     def root(self) -> Path:
-        """Return the directory containing the configuration file."""
+        """Return the directory containing the user-supplied configuration."""
         return self.path.parent
 
 
-def load_config(path: Path) -> WorkflowConfig:
-    """Load and validate one minimal `mpaswf` configuration file.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        YAML configuration path.
-
-    Returns
-    -------
-    WorkflowConfig
-        Parsed, minimally validated configuration.
-    """
-    path = path.expanduser().resolve()
+def _load_yaml(path: Path) -> dict[str, Any]:
+    """Load one YAML mapping with an explicit, path-oriented error."""
     if not path.is_file():
         raise FileNotFoundError(f"Configuration file not found: {path}")
-    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ConfigurationError(f"Invalid YAML in {path}: {error}") from error
+    if payload is None:
+        return {}
     if not isinstance(payload, dict):
-        raise ConfigurationError("The root YAML document must be a mapping.")
-    config = WorkflowConfig(path=path, data=payload)
+        raise ConfigurationError(f"The root YAML document must be a mapping: {path}")
+    return payload
+
+
+def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
+    """Recursively merge mappings while treating lists as atomic values.
+
+    The workflow contract is the base and the platform file is the override.
+    This allows, for example, ``static.reference_time`` to live in the contract
+    while ``static.links`` remains machine-specific in the platform document.
+    Lists are replaced intentionally instead of concatenated implicitly.
+    """
+    result = deepcopy(dict(base))
+    for key, item in override.items():
+        previous = result.get(key)
+        if isinstance(previous, Mapping) and isinstance(item, Mapping):
+            result[key] = _deep_merge(previous, item)
+        else:
+            result[key] = deepcopy(item)
+    return result
+
+
+def _expand_env(item: Any) -> Any:
+    """Expand shell environment variables recursively in decoded YAML values."""
+    if isinstance(item, Mapping):
+        return {str(key): _expand_env(value) for key, value in item.items()}
+    if isinstance(item, list):
+        return [_expand_env(value) for value in item]
+    if isinstance(item, str):
+        return os.path.expandvars(item)
+    return item
+
+
+def _workflow_contract_path(platform_path: Path, platform: Mapping[str, Any]) -> Path | None:
+    """Resolve optional ``workflow.configuration`` relative to the platform file."""
+    workflow = platform.get("workflow")
+    if workflow is None:
+        return None
+    if not isinstance(workflow, Mapping):
+        raise ConfigurationError("workflow must be a YAML mapping.")
+    specification = workflow.get("configuration")
+    if specification is None:
+        return None
+    if not isinstance(specification, str) or not specification.strip():
+        raise ConfigurationError("workflow.configuration must be a non-empty YAML path.")
+    candidate = Path(os.path.expandvars(specification)).expanduser()
+    return candidate if candidate.is_absolute() else (platform_path.parent / candidate).resolve()
+
+
+def load_config(path: Path) -> WorkflowConfig:
+    """Load one self-contained config or a platform + workflow config pair.
+
+    The command-line contract remains unchanged: callers provide one path with
+    ``--config``.  When that document contains ``workflow.configuration``, the
+    referenced workflow contract is loaded first and the platform document is
+    deep-merged over it.  Existing all-in-one files continue to work exactly as
+    before.
+    """
+    platform_path = Path(path).expanduser().resolve()
+    platform = _expand_env(_load_yaml(platform_path))
+    contract_path = _workflow_contract_path(platform_path, platform)
+
+    if contract_path is None:
+        merged = dict(platform)
+    else:
+        contract = _expand_env(_load_yaml(contract_path))
+        merged = _deep_merge(contract, platform)
+        # Provenance metadata is intentionally non-operational.  It helps
+        # diagnostics without changing any existing configuration key.
+        merged["workflow_contract_path"] = str(contract_path)
+
+    config = WorkflowConfig(path=platform_path, data=merged)
     validate_config(config)
     return config
 
@@ -95,9 +173,9 @@ def string(config: WorkflowConfig | Mapping[str, Any], key: str, *, required: bo
 def resolve_path(config: WorkflowConfig, raw: str, context: Mapping[str, str] | None = None) -> Path:
     """Render and resolve a configured file-system path.
 
-    Relative paths are resolved against the configuration directory, not the
-    current working directory. This keeps PBS and interactive execution
-    consistent.
+    Relative paths are resolved against the platform/self-contained
+    configuration directory, not the current working directory. Environment
+    variables have already been expanded by ``load_config``.
     """
     rendered = render(raw, context or {})
     path = Path(rendered).expanduser()
@@ -105,25 +183,7 @@ def resolve_path(config: WorkflowConfig, raw: str, context: Mapping[str, str] | 
 
 
 def render(template: str, context: Mapping[str, str]) -> str:
-    """Render one explicit ``str.format`` template.
-
-    Parameters
-    ----------
-    template : str
-        Input template string.
-    context : mapping of str to str
-        Supported placeholders.
-
-    Returns
-    -------
-    str
-        Rendered text.
-
-    Raises
-    ------
-    ConfigurationError
-        Raised when a template references an unknown placeholder.
-    """
+    """Render one explicit ``str.format`` template."""
     try:
         return template.format(**context)
     except KeyError as error:
@@ -131,7 +191,7 @@ def render(template: str, context: Mapping[str, str]) -> str:
 
 
 def validate_config(config: WorkflowConfig) -> None:
-    """Perform the intentionally small first-version schema validation."""
+    """Perform the intentionally small MPASWF schema validation."""
     for section in ("paths", "executables", "campaign", "gfs", "wps", "products", "templates", "static", "execution", "validation"):
         mapping(config, section)
 
