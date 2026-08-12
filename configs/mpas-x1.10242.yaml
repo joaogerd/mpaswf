@@ -1,0 +1,135 @@
+# ==============================================================================
+# MPASWF — CONTRATO DO WORKFLOW PARA A MALHA x1.10242
+# ==============================================================================
+#
+# Este arquivo descreve O QUE o workflow deve produzir e COMO os produtos MPAS
+# são nomeados. Ele não deve conter caminhos específicos de uma máquina,
+# executáveis instalados ou recursos PBS.
+#
+# A configuração de plataforma (por exemplo, jaci-x1.10242.yaml) aponta para
+# este arquivo usando:
+#
+#   workflow:
+#     configuration: mpas-x1.10242.yaml
+#
+# O usuário continua executando o MPASWF com UM único --config, sempre apontando
+# para a configuração de plataforma:
+#
+#   mpaswf run --phase prepare  --config configs/jaci-x1.10242.yaml
+#   mpaswf run --phase init     --config configs/jaci-x1.10242.yaml --submit --wait
+#   mpaswf run --phase forecast --config configs/jaci-x1.10242.yaml --submit --wait
+#   mpaswf run --phase manifest --config configs/jaci-x1.10242.yaml
+#
+# IMPORTANTE PARA MPAS-BMatrix
+# ---------------------------
+# `campaign.start_valid_time` e `campaign.end_valid_time` são TEMPOS VÁLIDOS,
+# não horários de inicialização. Para cada tempo válido T e leads [24, 48], o
+# MPASWF produz:
+#
+#   f048: inicializado em T - 48 h e válido em T
+#   f024: inicializado em T - 24 h e válido em T
+#
+# O manifesto final entrega exatamente esses pares para o MPAS-BMatrix.
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. CAMPANHA
+# ------------------------------------------------------------------------------
+# Define os tempos válidos que aparecerão no manifesto de pares.
+#
+# Para o método NMC usado no MPAS-BMatrix, mantenha leads_hours: [24, 48].
+# interval_hours controla a distância entre tempos válidos sucessivos.
+# Exemplo abaixo: um par NMC por dia entre 22 e 25 de junho de 2026.
+campaign:
+  start_valid_time: "2026-06-22T00:00:00Z"
+  end_valid_time: "2026-06-25T00:00:00Z"
+  interval_hours: 24
+  leads_hours: [24, 48]
+
+# ------------------------------------------------------------------------------
+# 2. ENTRADA GFS
+# ------------------------------------------------------------------------------
+# MPASWF usa um GFS f000 para cada horário de inicialização necessário.
+#
+# `file_template` é resolvido usando os placeholders do horário de inicialização.
+# O arquivo é procurado abaixo de:
+#
+#   <paths.gfs_dir>/<YYYYMMDDHH>/<file_template>
+#
+# Se `url_template` for null, todos os GRIB2 devem existir previamente.
+# Se for configurado, MPASWF pode baixar somente os arquivos ausentes.
+gfs:
+  file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
+
+  # Exemplo de URL; adapte ao provedor de dados usado na campanha.
+  # url_template: "https://servidor/gfs.{init_yyyymmddhh}/{gfs_file}"
+  url_template: null
+
+  # Protege contra arquivos vazios/truncados antes de chamar o WPS.
+  minimum_size_bytes: 1048576
+
+# ------------------------------------------------------------------------------
+# 3. WPS / UNGRIB
+# ------------------------------------------------------------------------------
+# `executables.wps_dir` é definido na configuração de plataforma.
+# Este bloco contém apenas o contrato operacional do WPS.
+wps:
+  # Produto que o ungrib deve deixar no diretório de cada ciclo.
+  output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
+
+  # Vtable padrão usada para GFS.
+  vtable: "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
+  namelist_target: namelist.wps
+
+  # Comandos executados dentro do diretório de trabalho WPS do ciclo.
+  link_grib_command: ["./link_grib.csh", "{gfs_file}"]
+  ungrib_command: ["./ungrib.exe"]
+
+# ------------------------------------------------------------------------------
+# 4. NOMES DOS PRODUTOS MPAS
+# ------------------------------------------------------------------------------
+# Estes nomes precisam ser coerentes com os arquivos streams/namelist usados
+# pelo MPAS. O manifesto do MPASWF referencia os arquivos resultantes.
+products:
+  init_state_template: "x1.10242.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc"
+  restart_template: "restart.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
+  da_state_template: "mpasout.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
+
+# ------------------------------------------------------------------------------
+# 5. TEMPLATES CD-CT / MPAS
+# ------------------------------------------------------------------------------
+# Os arquivos abaixo ficam no diretório `paths.cdct_templates_dir`, definido na
+# configuração de plataforma. O MPASWF renderiza cópias específicas para cada
+# etapa/ciclo; ele não altera os templates de origem.
+templates:
+  wps: "namelist.wps.in"
+
+  static_namelist: "namelist.init_atmosphere.static.in"
+  static_streams: "streams.init_atmosphere.static.in"
+
+  init_namelist: "namelist.init_atmosphere.in"
+  init_streams: "streams.init_atmosphere.in"
+
+  forecast_namelist: "namelist.atmosphere.in"
+  forecast_streams: "streams.atmosphere.in"
+
+# ------------------------------------------------------------------------------
+# 6. PRODUTO ESTÁTICO MPAS
+# ------------------------------------------------------------------------------
+# O static.nc é GERADO uma única vez pelo mpas_init_atmosphere e reutilizado em
+# todos os ciclos. Os arquivos físicos necessários para gerar esse produto
+# (grid, partição e demais assets fixos) ficam em `static.links` na configuração
+# de plataforma, pois seus caminhos dependem da máquina.
+static:
+  reference_time: "2010-10-23T00:00:00Z"
+  product_template: "x1.10242.static.nc"
+
+# ------------------------------------------------------------------------------
+# 7. VALIDAÇÃO DE PRODUTOS
+# ------------------------------------------------------------------------------
+# A validação é deliberadamente conservadora. Em campanhas de produção, pode-se
+# habilitar require_netcdf para validar também a abertura dos NetCDFs.
+validation:
+  require_netcdf: false
+  minimum_size_bytes: 1024
