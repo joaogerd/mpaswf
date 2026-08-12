@@ -1,142 +1,204 @@
 # ==============================================================================
-# MPASWF — CONFIGURAÇÃO DE PLATAFORMA JACI / x1.10242
+# MPASWF — JACI PLATFORM CONFIGURATION FOR THE x1.10242 MESH
 # ==============================================================================
 #
-# Este é o arquivo que deve ser passado ao --config quando o MPASWF for usado
-# na JACI. Ele contém somente informações dependentes da máquina:
+# START HERE if you are running MPASWF on JACI.
 #
-#   - caminhos de trabalho e dados;
-#   - executáveis instalados;
-#   - arquivos fixos da malha;
-#   - backend de execução;
-#   - filas, recursos e ambiente PBS.
+# This is the file passed to --config. It contains only settings that depend on
+# the machine, the installed software, or the filesystem:
 #
-# A campanha, nomes de produtos e contrato WPS/MPAS ficam separados em:
+#   - working/data directories;
+#   - WPS and MPAS executables;
+#   - fixed mesh/support files;
+#   - execution backend;
+#   - PBS queues, resources, MPI launcher, modules, and environment variables.
 #
-#   mpas-x1.10242.yaml
+# Campaign logic, GFS/WPS conventions, output names, MPAS template names, and
+# product validation are kept separately in:
 #
-# O MPASWF faz o merge dos dois arquivos internamente. A interface de execução
-# NÃO muda: o usuário continua fornecendo apenas este arquivo em --config.
+#   configs/mpas-x1.10242.yaml
 #
-# Antes de usar, revise principalmente os blocos PATHS, EXECUTABLES e
-# STATIC.LINKS. Variáveis de ambiente como $USER são expandidas pelo MPASWF.
+# MPASWF loads that workflow file automatically and deep-merges this platform
+# file over it. THE COMMAND-LINE INTERFACE DOES NOT CHANGE. Always pass only
+# this platform file:
+#
+#   CONFIG=configs/jaci-x1.10242.yaml
+#   mpaswf pbs-smoke --config "$CONFIG"
+#   mpaswf run --phase prepare  --config "$CONFIG"
+#   mpaswf run --phase init     --config "$CONFIG" --submit --wait
+#   mpaswf run --phase forecast --config "$CONFIG" --submit --wait
+#   mpaswf run --phase manifest --config "$CONFIG"
+#
+# A first-time user should read docs/getting-started.md before editing this
+# file. That guide explains what MPAS, WPS, static interpolation, initialization,
+# forecast lead times, and the final manifest mean.
+#
+# Environment variables such as $USER are expanded by MPASWF before validation.
+# Before the first run, verify every path below with `test -e`, `test -d`, or
+# `test -x` as appropriate. The comments in each section show what is expected.
 #
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# 1. CONTRATO DO WORKFLOW
+# 1. WORKFLOW CONTRACT
 # ------------------------------------------------------------------------------
-# Caminho relativo a este arquivo. Não passe o arquivo de contrato diretamente
-# ao --config: ele não contém os caminhos nem os recursos PBS da plataforma.
+# Relative paths are resolved from the directory containing THIS file.
+# Do not normally pass mpas-x1.10242.yaml directly to --config: it intentionally
+# does not contain JACI paths, executables, or PBS resources.
 workflow:
   configuration: mpas-x1.10242.yaml
 
 # ------------------------------------------------------------------------------
-# 2. DIRETÓRIOS DA CAMPANHA
+# 2. CAMPAIGN DIRECTORIES
 # ------------------------------------------------------------------------------
 paths:
-  # Raiz de todos os diretórios de execução e do manifesto final.
+  # Root directory for generated run directories, metadata, logs, and the final
+  # forecast-pair manifest. MPASWF creates subdirectories below this path.
   work_dir: /p/projetos/monan_das/$USER/work/mpaswf
 
-  # Diretório onde será gerado/reutilizado x1.10242.static.nc.
-  # Pode ficar dentro de work_dir, mas é explícito para permitir reutilização.
+  # Directory that owns the reusable mesh-level static MPAS product.
+  # It may be inside work_dir, but is explicit so the static product can be
+  # reused by every date-dependent initialization in the campaign.
   static_dir: /p/projetos/monan_das/$USER/work/mpaswf/static
 
-  # Estrutura esperada:
+  # Root directory containing one GFS analysis file per required initialization
+  # cycle. The default contract expects:
+  #
   #   <gfs_dir>/<YYYYMMDDHH>/gfs.tHHz.pgrb2.0p25.f000
+  #
+  # For example, cycle 2026062000 is expected below:
+  #   /.../data/gfs/2026062000/gfs.t00z.pgrb2.0p25.f000
   gfs_dir: /p/projetos/monan_das/$USER/data/gfs
 
-  # Diretório contendo os sete templates declarados em mpas-x1.10242.yaml.
-  # Ajuste para o diretório CD-CT/MPAS validado usado na campanha.
+  # Directory containing the seven validated template files named in
+  # configs/mpas-x1.10242.yaml:
+  #
+  #   namelist.wps.in
+  #   namelist.init_atmosphere.static.in
+  #   streams.init_atmosphere.static.in
+  #   namelist.init_atmosphere.in
+  #   streams.init_atmosphere.in
+  #   namelist.atmosphere.in
+  #   streams.atmosphere.in
+  #
+  # IMPORTANT: MPASWF does not invent generic MPAS namelists/streams because
+  # those files are scientifically and build dependent. Point this directory to
+  # the validated templates for the MPAS case you intend to reproduce.
   cdct_templates_dir: /p/projetos/monan_das/$USER/projects/mpaswf-templates/x1.10242
 
 # ------------------------------------------------------------------------------
-# 3. EXECUTÁVEIS
+# 3. INSTALLED EXECUTABLES
 # ------------------------------------------------------------------------------
-# Estes caminhos devem apontar para a MESMA instalação MPAS usada para a
-# campanha. Evite misturar executáveis de builds diferentes entre init/forecast.
+# WPS and MPAS must already be built/installed. MPASWF orchestrates them; it does
+# not compile WPS or MPAS. Use the same compatible software stack for both MPAS
+# executables. Before running, verify:
+#
+#   test -d  <wps_dir>
+#   test -x  <wps_dir>/ungrib.exe
+#   test -x  <wps_dir>/link_grib.csh
+#   test -x  <mpas_init>
+#   test -x  <mpas_atmosphere>
+#
 executables:
-  # Raiz da instalação WPS. Deve conter link_grib.csh, ungrib.exe e Vtables.
+  # WPS installation root. It must contain link_grib.csh, ungrib.exe, and the
+  # GFS Vtable used by the workflow contract.
   wps_dir: /p/projetos/monan_das/$USER/data/mpas-bmatrix-global/external/WPS/WPS-4.6.0
 
-  # Executáveis MPAS compilados no ambiente JACI.
+  # MPAS initialization executable. It performs both the one-time static
+  # interpolation and each date-dependent atmospheric initialization.
   mpas_init: /p/projetos/monan_das/$USER/builds/monan-jedi-mpas/bin/mpas_init_atmosphere
+
+  # MPAS atmosphere model executable used to integrate the f024/f048 forecasts.
   mpas_atmosphere: /p/projetos/monan_das/$USER/builds/monan-jedi-mpas/bin/mpas_atmosphere
 
 # ------------------------------------------------------------------------------
-# 4. ARQUIVOS FIXOS DA MALHA / STATIC
+# 4. FIXED MESH / STATIC INPUTS
 # ------------------------------------------------------------------------------
-# `static.reference_time` e `static.product_template` vêm do contrato do
-# workflow. Aqui ficam apenas os assets cujo CAMINHO depende da plataforma.
+# `static.reference_time` and `static.product_template` are defined by the
+# workflow contract. Only machine-dependent INPUT paths belong here.
 #
-# IMPORTANTE: NÃO inclua x1.10242.static.nc abaixo. Esse arquivo é saída do
-# estágio static, e não uma entrada a ser linkada.
+# The grid describes the MPAS mesh. The partition assigns mesh cells to MPI
+# ranks. Therefore the partition file MUST match pbs.mpiprocs below.
+#
+# IMPORTANT: do NOT add x1.10242.static.nc to this list. That file is generated
+# by the static stage and is an OUTPUT, not an input link.
 static:
   links:
-    # Malha MPAS x1.10242.
+    # MPAS x1.10242 grid file.
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
       target: x1.10242.grid.nc
 
-    # Partição correspondente ao número de ranks usado nos jobs normais.
+    # 128-way partition for the same x1.10242 mesh. If pbs.mpiprocs changes,
+    # select the partition file built for the new number of MPI ranks.
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
       target: x1.10242.graph.info.part.128
 
-    # Inclua aqui, quando exigidos pelos templates validados, arquivos fixos
-    # adicionais: invariant, tabelas, arquivos de física, etc.
+    # Add any additional fixed files required by the validated MPAS templates,
+    # for example invariant data, lookup tables, or physics support files.
+    # Each entry is linked into the stage run directory using `target`.
     #
-    # - source: /caminho/para/arquivo_fixo
-    #   target: nome_esperado_no_run_dir
+    # - source: /absolute/path/to/fixed/file
+    #   target: filename_expected_by_mpas
 
 # ------------------------------------------------------------------------------
-# 5. BACKEND DE EXECUÇÃO
+# 5. EXECUTION BACKEND
 # ------------------------------------------------------------------------------
-# Valores aceitos: local ou pbs.
-# Na JACI, produção e smoke devem usar pbs.
+# Accepted values:
+#   local : run MPAS executables directly in the current shell
+#   pbs   : render and optionally submit PBS jobs
+#
+# JACI production campaigns normally use `pbs`.
 execution:
   backend: pbs
 
 # ------------------------------------------------------------------------------
-# 6. PBS / MPI
+# 6. PBS / MPI SETTINGS
 # ------------------------------------------------------------------------------
 pbs:
-  # Fila padrão. Pode ser sobrescrita por etapa com queue_static, queue_init e
-  # queue_forecast, se necessário.
+  # Default PBS queue. Optional queue_static, queue_init, and queue_forecast
+  # keys may be added if stages need different queues.
   queue: pesqmini
 
-  # Recursos dos jobs MPAS normais. Estes valores precisam ser consistentes
-  # com o arquivo de partição linkado em static.links.
+  # Resources for normal MPAS jobs. The partition linked above is for 128 MPI
+  # ranks, so mpiprocs is 128. `select: 1` requests one PBS chunk/node allocation
+  # according to the site's scheduler configuration.
   select: 1
   ncpus: 128
   mpiprocs: 128
 
-  # Tempos máximos por etapa.
+  # Scheduler wall-clock limits for each stage. A job exceeding its walltime is
+  # terminated by PBS, so increase these values only when real runtimes require
+  # it and the queue policy allows it.
   walltime_static: "00:20:00"
   walltime_init: "00:30:00"
   walltime_forecast: "03:00:00"
 
-  # Smoke real do PBS: sempre 1 CPU / 1 rank, independentemente dos valores
-  # acima. Apenas fila e walltime são configuráveis aqui.
+  # Real scheduler smoke test. `mpaswf pbs-smoke` always requests only 1 CPU and
+  # 1 MPI rank, independent of ncpus/mpiprocs above. It checks qsub, qstat, MPI,
+  # module loading, compute-node execution, and shared filesystem visibility.
   queue_smoke: pesqmini
   walltime_smoke: "00:02:00"
 
-  # Launcher MPI. {mpi_ranks} é preenchido pelo MPASWF.
+  # MPI launcher. {mpi_ranks} is replaced by MPASWF with 128 for normal jobs and
+  # with 1 for the PBS smoke test.
   launcher: ["mpiexec", "-n", "{mpi_ranks}"]
 
-  # Comandos do scheduler. Mantê-los como listas permite substituir wrappers
-  # locais sem alterar o Python.
+  # Scheduler commands. They are lists so site wrappers can be substituted
+  # without changing Python code.
   qsub_command: ["qsub"]
   qstat_command: ["qstat", "-f"]
 
-  # Intervalo entre consultas reais ao scheduler. O spinner e a contagem
-  # regressiva continuam sendo atualizados entre essas consultas.
+  # Seconds between real qstat queries. The terminal spinner, elapsed clock, and
+  # countdown update continuously between scheduler queries.
   poll_seconds: 30
 
-  # Ambiente carregado dentro de cada job PBS.
-  # Ajuste para reproduzir exatamente o ambiente usado na compilação do MPAS.
+  # Commands executed inside every PBS job before MPAS/MPI starts. They should
+  # reproduce the runtime environment compatible with the installed executables.
   modules:
     - "module load PrgEnv-gnu"
     - "module load cray-mpich"
 
+  # Environment variables exported inside every PBS job.
   environment:
     OMP_NUM_THREADS: "1"
     FI_CXI_RX_MATCH_MODE: "hybrid"
