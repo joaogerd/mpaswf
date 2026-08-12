@@ -14,13 +14,56 @@ GFS f000
   -> neutral MPAS manifest
 ```
 
-It does **not** run BFLOW, BUMP, JEDI, observation processing, or B-matrix
-calibration.
+It does **not** run BFLOW, BUMP, JEDI/SABER calibration, observation processing,
+or B-matrix diagnostics.
+
+## New to MPAS or WPS?
+
+Start with **[docs/getting-started.md](docs/getting-started.md)**. It is written
+for a user who has never run MPAS before and explains, in order:
+
+- what GFS, WPS, MPAS mesh, partitions, static interpolation, initialization,
+  forecast leads, and valid times mean;
+- which external executables/data/files must exist before MPASWF can run;
+- how to verify the JACI paths;
+- which seven validated template files are required and why MPASWF does not
+  invent generic MPAS namelists/streams;
+- how the f024/f048 same-valid-time pair is constructed for NMC;
+- how to run the real PBS smoke test;
+- how to execute `prepare`, `init`, `forecast`, and `manifest`;
+- what directories/files should appear after each phase;
+- where logs and PBS scripts are written;
+- how safe reruns and `--force` work;
+- how to diagnose the most common failures.
+
+The repository documentation and the shipped configuration comments are in
+English and are intended to be sufficient for an independent first run.
+
+## What must already exist
+
+MPASWF orchestrates existing software; it does not compile the model. A real run
+needs:
+
+```text
+Python >= 3.10
+WPS: link_grib.csh + ungrib.exe + Vtable.GFS
+MPAS: mpas_init_atmosphere + mpas_atmosphere
+MPAS mesh + MPI partition
+validated WPS/MPAS namelist/streams templates
+GFS f000 input files (or a configured download URL)
+PBS/qsub/qstat + MPI launcher when using the PBS backend
+```
+
+The getting-started guide shows how to verify each dependency before spending
+scheduler time on a model run.
 
 ## Installation
 
 ```bash
+git clone https://github.com/joaogerd/mpaswf.git
+cd mpaswf
 python -m pip install --no-deps -e .
+mpaswf --help
 ```
 
 For development:
@@ -41,7 +84,8 @@ configs/
 └── mpas-x1.10242.yaml   # campaign, GFS/WPS, products, templates
 ```
 
-`configs/jaci-x1.10242.yaml` references the second file with:
+Both files contain extensive inline English documentation. The platform file
+references the workflow contract with:
 
 ```yaml
 workflow:
@@ -53,24 +97,22 @@ interface is unchanged**: always pass only one configuration path.
 
 ```bash
 CONFIG=configs/jaci-x1.10242.yaml
-
-mpaswf run --phase prepare  --config "$CONFIG"
-mpaswf run --phase init     --config "$CONFIG" --submit --wait
-mpaswf run --phase forecast --config "$CONFIG" --submit --wait
-mpaswf run --phase manifest --config "$CONFIG"
 ```
 
 The historical all-in-one YAML remains fully supported. `examples/config.yaml`
 is retained as the compatibility/reference example, so existing scripts and the
 MPAS-BMatrix forecast-pair tutorial do not need to change their invocation.
 
-See [docs/configuration.md](docs/configuration.md) for the complete description
-and [configs/README.md](configs/README.md) for the configuration directory.
+See [docs/configuration.md](docs/configuration.md) for the complete field
+reference and [configs/README.md](configs/README.md) for the configuration-file
+organization.
 
-## f024/f048 campaign contract
+## The f024/f048 campaign contract
 
 `campaign.start_valid_time` and `campaign.end_valid_time` are **valid times**,
-not initialization times. With:
+not initialization times.
+
+With:
 
 ```yaml
 campaign:
@@ -87,57 +129,41 @@ f048 initialized at T - 48 h, valid at T
 f024 initialized at T - 24 h, valid at T
 ```
 
-The final manifest therefore contains same-valid-time NMC pairs expected by
+For example, for valid time `2026-06-22 00Z`:
+
+```text
+2026-06-20 00Z -> 48 h forecast -> 2026-06-22 00Z
+2026-06-21 00Z -> 24 h forecast -> 2026-06-22 00Z
+```
+
+The final manifest therefore contains the same-valid-time NMC pairs expected by
 MPAS-BMatrix.
 
-## Public interface
+## First-run sequence on JACI
+
+After reviewing the paths and dependencies described in the getting-started
+guide:
 
 ```bash
-mpaswf run --phase prepare  --config config.yaml
-mpaswf run --phase init     --config config.yaml
-mpaswf run --phase forecast --config config.yaml
-mpaswf run --phase manifest --config config.yaml
+CONFIG=configs/jaci-x1.10242.yaml
 
-# Real scheduler smoke: qsub + qstat + one MPI rank on a compute node.
-mpaswf pbs-smoke --config config.yaml
-```
+# 1. Verify real PBS + MPI + compute-node execution with one rank.
+mpaswf pbs-smoke --config "$CONFIG"
 
-### `prepare`
+# 2. Decode every required GFS analysis through WPS/ungrib.
+mpaswf run --phase prepare --config "$CONFIG"
 
-Reuses or acquires required GFS files and executes WPS `link_grib`/`ungrib` for
-each initialization time.
-
-### `init`
-
-Generates the one-time mesh-level static product when missing, then generates
-the date-dependent MPAS initial states.
-
-For PBS, a robust non-blocking campaign can submit the static boundary first
-and rerun after it completes:
-
-```bash
-mpaswf run --phase init --config "$CONFIG" --submit
-mpaswf run --phase init --config "$CONFIG" --submit
-```
-
-For a smoke/small campaign:
-
-```bash
+# 3. Generate/reuse the static product and create all MPAS initial states.
 mpaswf run --phase init --config "$CONFIG" --submit --wait
-```
 
-### `forecast`
-
-Runs the requested f024/f048 forecasts and produces both `restart` and
-`da_state` products:
-
-```bash
+# 4. Run all required 24 h / 48 h MPAS forecasts.
 mpaswf run --phase forecast --config "$CONFIG" --submit --wait
+
+# 5. Validate the products and write the MPAS-BMatrix hand-off manifest.
+mpaswf run --phase manifest --config "$CONFIG"
 ```
 
-### `manifest`
-
-Validates the forecast products and writes:
+The manifest is written to:
 
 ```text
 <work_dir>/products/mpas-forecast-manifest.tsv
@@ -149,11 +175,38 @@ with columns:
 valid_time    f048_state    f024_state    f048_restart    f024_restart
 ```
 
-This file is the hand-off to MPAS-BMatrix.
+## Phase behavior
 
-## PBS script names
+### `prepare`
 
-Rendered submission files are stage-specific:
+For every unique initialization time, MPASWF locates/acquires the GFS f000 file,
+stages WPS, renders `namelist.wps`, runs `link_grib.csh` and `ungrib.exe`, and
+validates the expected `FILE:YYYY-MM-DD_HH` intermediate product.
+
+### `init`
+
+MPASWF first generates or reuses the one-time mesh-level static product. Once the
+static dependency is valid, it generates one date-dependent MPAS initial state
+for each required initialization cycle.
+
+For a non-blocking production pattern, `--wait` can be omitted and the command
+rerun after the static job completes. For a first/small campaign,
+`--submit --wait` is easier to follow because the terminal remains attached to
+the dependency chain.
+
+### `forecast`
+
+MPASWF validates each initial state, stages `mpas_atmosphere`, runs the requested
+f024/f048 integrations, and requires both restart and `da_state` products.
+
+### `manifest`
+
+MPASWF validates every requested pair and writes the neutral TSV hand-off used by
+MPAS-BMatrix.
+
+## PBS script names and terminal progress
+
+Rendered submission files identify their purpose:
 
 ```text
 static/qsub_static.pbs
@@ -162,12 +215,18 @@ forecast/2018041500/f024/qsub_forecast_2018041500_f024.pbs
 forecast/2018041500/f048/qsub_forecast_2018041500_f048.pbs
 ```
 
-The scheduler `#PBS -N` names remain compact while the files on disk identify
-the stage, cycle, and forecast lead.
+Interactive PBS waiting uses the MPAS-BMatrix-style live status line:
+
+```text
+⠋ PBS job 328134.pbs-ha: state R elapsed 03:59 next check in 0s
+```
+
+Actual `qstat` calls still respect `pbs.poll_seconds`; only the terminal spinner,
+elapsed clock, and countdown are refreshed continuously.
 
 ## Real PBS smoke
 
-Before a campaign on the PBS login node:
+Before a campaign:
 
 ```bash
 mpaswf pbs-smoke --config "$CONFIG"
@@ -177,39 +236,24 @@ The smoke performs a real scheduler round trip. It:
 
 1. renders `<work_dir>/.mpaswf/pbs-smoke/qsub_pbs_smoke.pbs`;
 2. submits through the configured `qsub` command;
-3. monitors the job through the configured `qstat` command;
+3. monitors through the configured `qstat` command;
 4. loads the configured modules/environment;
 5. requests only 1 CPU / 1 MPI rank and runs `/bin/hostname` on a compute node;
 6. requires `<work_dir>/.mpaswf/pbs-smoke/pbs-smoke.ok` before succeeding.
 
-Typical output:
+If this smoke fails, fix scheduler/MPI/runtime access before running MPAS.
 
-```text
-• PBS smoke: rendered .../qsub_pbs_smoke.pbs.
-• PBS: submitting qsub_pbs_smoke.pbs
-✓ PBS: submitted qsub_pbs_smoke.pbs as 328134.pbs-ha (00:00)
-⠋ PBS job 328134.pbs-ha: state R elapsed 00:04 next check in 25s
-✓ PBS job 328134.pbs-ha: no longer listed; validating outputs
-✓ PBS smoke: compute-node execution validated by .../pbs-smoke.ok.
-```
+## Safe reruns
 
-## Terminal progress
+The workflow is idempotent: valid existing products are reused. Use `--force`
+only when you deliberately want to regenerate a selected phase. Persistent logs
+and `.mpaswf` metadata remain in the stage directories to support diagnosis.
 
-Interactive sessions use a compact braille spinner for long-running operations.
-PBS waiting shows the scheduler state, elapsed time, and countdown until the next
-real `qstat` query. Redirected output uses durable `[RUN]`, `[OK]`, and `[FAIL]`
-lines.
+## Documentation
 
-Color follows terminal conventions:
-
-```bash
-MPASWF_COLOR=always mpaswf run --phase prepare --config "$CONFIG"
-MPASWF_COLOR=never  mpaswf run --phase prepare --config "$CONFIG"
-NO_COLOR=1          mpaswf run --phase prepare --config "$CONFIG"
-```
-
-## Design documentation
-
-- [Configuration](docs/configuration.md)
-- [Design](docs/design.md)
-- [CD-CT mapping](docs/cdct_mapping.md)
+- **[Documentation index](docs/README.md)**
+- **[Getting started](docs/getting-started.md)** — first-time user guide
+- **[Configuration reference](docs/configuration.md)**
+- **[Design](docs/design.md)**
+- **[CD-CT mapping](docs/cdct_mapping.md)**
+- **[Configuration directory](configs/README.md)**
