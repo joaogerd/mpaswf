@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mpaswf"
-version = "0.2.2"
+version = "0.3.0"
 description = "Small MPAS-only workflow for CD-CT-derived WPS, MPAS initialization, and forecast production."
 readme = "README.md"
 requires-python = ">=3.10"
