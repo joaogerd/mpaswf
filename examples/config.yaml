@@ -67,6 +67,10 @@ execution:
 
 pbs:
   queue: pesqmini
+  # The scheduler smoke is intentionally tiny: one CPU / one MPI rank, 2 min.
+  # queue_smoke can differ from the production queue when desired.
+  queue_smoke: pesqmini
+  walltime_smoke: "00:02:00"
   select: 1
   ncpus: 128
   mpiprocs: 128
