@@ -18,6 +18,29 @@ It owns:
 It does not own NMC differences, BFLOW, BUMP, JEDI, Obs2IODA, or scheduler
 abstraction beyond a small PBS renderer.
 
+## Configuration layers
+
+The recommended configuration follows the same separation used by
+MPAS-BMatrix:
+
+```text
+platform YAML
+  paths + executables + mesh assets + execution/PBS
+          |
+          | workflow.configuration
+          v
+workflow contract YAML
+  campaign + GFS/WPS contract + products + templates + validation
+```
+
+`load_config()` deep-merges the workflow contract with the platform document.
+The platform is the override layer, so nested machine-specific values may be
+changed without duplicating the campaign contract. Lists remain atomic and are
+never concatenated implicitly.
+
+This is an internal loading detail only. The public CLI still receives exactly
+one `--config` argument. Historical self-contained YAML files remain valid.
+
 ## Dependency layers
 
 ```text
