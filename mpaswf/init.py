@@ -122,6 +122,7 @@ def execute_init(
         walltime=walltime,
         context=context,
         queue=string(config, "pbs.queue_init", required=False, default=string(config, "pbs.queue")),
+        script_name=f"qsub_init_{init_time.strftime('%Y%m%d%H')}.pbs",
     )
     payload: dict[str, object] = {
         "init_time": context["init_time"],
