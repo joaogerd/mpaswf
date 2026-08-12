@@ -96,10 +96,10 @@ Strings YAML passam por expansão de variáveis de ambiente. Assim, é possível
 
 ```yaml
 paths:
-  work_dir: /p/projetos/monan_das/${USER}/work/mpaswf
+  work_dir: /p/projetos/monan_das/$USER/work/mpaswf
 ```
 
-A expansão ocorre antes da validação e antes da resolução dos caminhos.
+A expansão ocorre antes da validação e antes da resolução dos caminhos. A forma `$VAR` é preferível em valores que também passam pelo sistema de placeholders `{...}` do MPASWF.
 
 ## Campanha e pares f024/f048
 
