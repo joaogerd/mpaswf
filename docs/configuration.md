@@ -208,8 +208,9 @@ Supported values are `local` and `pbs`.
 
 ## `pbs`
 
-When the backend is PBS, configure queue/resources/launcher and stage walltimes.
-The x1.10242 JACI case uses a partition matching `mpiprocs: 128`.
+When the backend is PBS, configure queue/resources/launcher, compute-node runtime
+bootstrap and stage walltimes. The x1.10242 JACI case uses a partition matching
+`mpiprocs: 128`.
 
 Important keys include:
 
@@ -225,9 +226,29 @@ launcher
 qsub_command
 qstat_command
 poll_seconds
+bootstrap
 modules
 environment
 ```
+
+`pbs.bootstrap` is an ordered list of literal shell commands executed inside
+every PBS job before `pbs.modules`, environment exports and the MPI launcher.
+Use it for site/runtime initialization that cannot be represented by a simple
+`module load`, such as exposing and loading the validated spack-stack/JEDI module
+hierarchy on JACI. The same bootstrap is used by `pbs-smoke`, initialization and
+forecast jobs, so the smoke test exercises the actual runtime environment rather
+than only scheduler submission.
+
+The MONAN-JEDI installation root and the external stack remain separate
+contracts:
+
+```text
+software.monan_jedi_root -> installed MPAS/WPS/JEDI runtime products
+pbs.bootstrap            -> compute-node dependency/MPI environment
+```
+
+`pbs.modules` remains supported for direct module commands in simpler sites or
+legacy configurations.
 
 Optional `queue_static`, `queue_init`, and `queue_forecast` values may override
 the default queue for individual stages.
