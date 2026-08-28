@@ -80,7 +80,7 @@ Reusable mesh-level static-product workspace.
 
 ### `paths.gfs_dir`
 
-Root containing GFS analysis inputs.
+Root containing cached GFS analysis inputs.
 
 ### `paths.cdct_templates_dir`
 
@@ -105,7 +105,7 @@ The start/end values are valid times. The standard NMC workflow requires exactly
 ```yaml
 gfs:
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
-  url_template: null
+  url_template: "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{init_yyyymmdd}/{init_hour}/atmos/{gfs_file}"
   minimum_size_bytes: 1048576
 ```
 
@@ -115,8 +115,13 @@ The local lookup convention is:
 <paths.gfs_dir>/<YYYYMMDDHH>/<file_template>
 ```
 
-A null URL means missing files are an input error rather than automatically
-downloaded.
+The JACI workflow first reuses a valid local file. When it is absent, the
+configured URL downloads the complete 0.25-degree GFS GRIB2 product from NOAA's
+public AWS archive and stores it at the same local path. The download is written
+through a temporary `.download` file and renamed only after completion.
+
+Set `url_template: null` only for campaigns where input acquisition is managed
+externally; in that mode a missing local GFS file is an input error.
 
 ## `wps`
 
