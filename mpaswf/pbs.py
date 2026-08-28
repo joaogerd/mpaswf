@@ -49,6 +49,42 @@ def _argv(raw: object, context: Mapping[str, str], label: str) -> list[str]:
     return [render(item, context) for item in raw]
 
 
+def _configured_shell_lines(raw: object, label: str) -> list[str]:
+    """Validate one optional list of literal shell commands."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(item, str) and item.strip() for item in raw):
+        raise ValueError(f"{label} must be a list of non-empty shell command strings.")
+    return list(raw)
+
+
+def _append_pbs_runtime_setup(lines: list[str], pbs: Mapping[str, object]) -> None:
+    """Append the explicitly configured compute-node runtime bootstrap.
+
+    ``pbs.bootstrap`` is intended for site/runtime initialization that must run
+    before MPI is invoked, for example loading the exact spack-stack/JEDI module
+    hierarchy on JACI. ``pbs.modules`` is retained for backwards compatibility
+    with older configurations that only needed direct module-load statements.
+    """
+    lines.extend(_configured_shell_lines(pbs.get("bootstrap"), "pbs.bootstrap"))
+    lines.extend(_configured_shell_lines(pbs.get("modules"), "pbs.modules"))
+    environment = pbs.get("environment", {})
+    if not isinstance(environment, Mapping):
+        raise ValueError("pbs.environment must be a mapping.")
+    for key, item in environment.items():
+        lines.append(f"export {key}={item}")
+
+
+def _append_pbs_placement(lines: list[str], pbs: Mapping[str, object]) -> None:
+    """Append an optional PBS placement resource such as ``place=excl``."""
+    place = pbs.get("place")
+    if place is None:
+        return
+    if not isinstance(place, str) or not place.strip():
+        raise ValueError("pbs.place must be a non-empty string when configured.")
+    lines.append(f"#PBS -l place={place}")
+
+
 def render_pbs_job(
     config: WorkflowConfig,
     *,
@@ -62,8 +98,8 @@ def render_pbs_job(
 ) -> PBSJob:
     """Render a PBS script for one MPAS executable.
 
-    The script loads only explicitly configured modules and exports only the
-    configured environment variables. The command is passed through the
+    The script applies the explicitly configured runtime bootstrap, modules and
+    environment before invoking MPI. The command is passed through the
     configured MPI launcher. ``script_name`` gives each rendered submission
     file a stage-specific, human-readable name instead of the former generic
     ``job.pbs``.
@@ -82,18 +118,21 @@ def render_pbs_job(
         f"#PBS -N {job_name}",
         f"#PBS -q {selected_queue}",
         f"#PBS -l select={pbs['select']}:ncpus={pbs['ncpus']}:mpiprocs={pbs['mpiprocs']}",
-        f"#PBS -l walltime={walltime}",
-        f"#PBS -o {run_dir / 'logs' / 'pbs.stdout.log'}",
-        f"#PBS -e {run_dir / 'logs' / 'pbs.stderr.log'}",
-        "set -euo pipefail",
-        f"cd {run_dir}",
-        "ulimit -s unlimited",
     ]
-    for module_line in pbs.get("modules", []):
-        lines.append(str(module_line))
-    for key, item in pbs.get("environment", {}).items():
-        lines.append(f"export {key}={item}")
-    lines.append(" ".join(command))
+    _append_pbs_placement(lines, pbs)
+    lines.extend(
+        [
+            f"#PBS -l walltime={walltime}",
+            f"#PBS -o {run_dir / 'logs' / 'pbs.stdout.log'}",
+            f"#PBS -e {run_dir / 'logs' / 'pbs.stderr.log'}",
+            "set -euo pipefail",
+            "umask 002",
+            f"cd {shlex.quote(str(run_dir))}",
+            "ulimit -s unlimited",
+        ]
+    )
+    _append_pbs_runtime_setup(lines, pbs)
+    lines.append(" ".join(shlex.quote(part) for part in command))
     filename = script_name or f"qsub_{job_name}.pbs"
     if Path(filename).name != filename:
         raise ValueError("PBS script_name must be a filename, not a path.")
@@ -173,9 +212,10 @@ def run_pbs_smoke(config: WorkflowConfig) -> Path:
 
     This is intentionally not a mocked/unit-test path. It writes a small PBS
     script under ``<work_dir>/.mpaswf/pbs-smoke``, submits it with the configured
-    ``qsub``, monitors it with the configured ``qstat`` helper, launches one MPI
-    rank running ``/bin/hostname``, and requires a sentinel file written by the
-    compute node before reporting success.
+    ``qsub``, monitors it with the configured ``qstat`` helper, applies the same
+    runtime bootstrap used by MPAS jobs, launches one MPI rank running
+    ``/bin/hostname``, and requires a sentinel file written by the compute node
+    before reporting success.
     """
     if string(config, "execution.backend") != "pbs":
         raise ValueError("pbs-smoke requires execution.backend: pbs.")
@@ -214,20 +254,25 @@ def run_pbs_smoke(config: WorkflowConfig) -> Path:
         "#PBS -N mpaswf_smoke",
         f"#PBS -q {queue}",
         "#PBS -l select=1:ncpus=1:mpiprocs=1",
-        f"#PBS -l walltime={walltime}",
-        f"#PBS -o {stdout}",
-        f"#PBS -e {stderr}",
-        "set -euo pipefail",
-        f"cd {shlex.quote(str(run_dir))}",
-        "ulimit -s unlimited",
     ]
-    for module_line in pbs.get("modules", []):
-        lines.append(str(module_line))
-    for key, item in pbs.get("environment", {}).items():
-        lines.append(f"export {key}={item}")
+    _append_pbs_placement(lines, pbs)
+    lines.extend(
+        [
+            f"#PBS -l walltime={walltime}",
+            f"#PBS -o {stdout}",
+            f"#PBS -e {stderr}",
+            "set -euo pipefail",
+            "umask 002",
+            f"cd {shlex.quote(str(run_dir))}",
+            "ulimit -s unlimited",
+        ]
+    )
+    _append_pbs_runtime_setup(lines, pbs)
     lines.extend(
         [
             'echo "MPASWF PBS smoke: compute node $(hostname)"',
+            'echo "MPASWF PBS smoke: mpiexec=$(command -v mpiexec || true)"',
+            "module list 2>&1 || true",
             " ".join(shlex.quote(part) for part in command),
             f"printf '%s\\n' 'MPASWF PBS smoke OK' > {shlex.quote(str(sentinel))}",
         ]
