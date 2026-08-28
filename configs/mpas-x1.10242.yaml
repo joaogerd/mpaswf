@@ -25,8 +25,9 @@ wps:
   # WPS executables and tables are resolved from software.monan_jedi_root.
   # Only the table NAME is part of this workflow contract; its installation
   # path is ${monan_jedi_root}/share/wps/Variable_Tables/<name>.
+  # The GFS prefix matches the validated CD-CT namelist.wps contract.
   vtable_name: Vtable.GFS
-  output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
+  output_template: "GFS:{init_date_yyyy_mm_dd_hh}"
   namelist_target: namelist.wps
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
   ungrib_command: ["./ungrib.exe"]
