@@ -75,6 +75,16 @@ def _append_pbs_runtime_setup(lines: list[str], pbs: Mapping[str, object]) -> No
         lines.append(f"export {key}={item}")
 
 
+def _append_pbs_placement(lines: list[str], pbs: Mapping[str, object]) -> None:
+    """Append an optional PBS placement resource such as ``place=excl``."""
+    place = pbs.get("place")
+    if place is None:
+        return
+    if not isinstance(place, str) or not place.strip():
+        raise ValueError("pbs.place must be a non-empty string when configured.")
+    lines.append(f"#PBS -l place={place}")
+
+
 def render_pbs_job(
     config: WorkflowConfig,
     *,
@@ -108,14 +118,19 @@ def render_pbs_job(
         f"#PBS -N {job_name}",
         f"#PBS -q {selected_queue}",
         f"#PBS -l select={pbs['select']}:ncpus={pbs['ncpus']}:mpiprocs={pbs['mpiprocs']}",
-        f"#PBS -l walltime={walltime}",
-        f"#PBS -o {run_dir / 'logs' / 'pbs.stdout.log'}",
-        f"#PBS -e {run_dir / 'logs' / 'pbs.stderr.log'}",
-        "set -euo pipefail",
-        "umask 002",
-        f"cd {shlex.quote(str(run_dir))}",
-        "ulimit -s unlimited",
     ]
+    _append_pbs_placement(lines, pbs)
+    lines.extend(
+        [
+            f"#PBS -l walltime={walltime}",
+            f"#PBS -o {run_dir / 'logs' / 'pbs.stdout.log'}",
+            f"#PBS -e {run_dir / 'logs' / 'pbs.stderr.log'}",
+            "set -euo pipefail",
+            "umask 002",
+            f"cd {shlex.quote(str(run_dir))}",
+            "ulimit -s unlimited",
+        ]
+    )
     _append_pbs_runtime_setup(lines, pbs)
     lines.append(" ".join(shlex.quote(part) for part in command))
     filename = script_name or f"qsub_{job_name}.pbs"
@@ -239,14 +254,19 @@ def run_pbs_smoke(config: WorkflowConfig) -> Path:
         "#PBS -N mpaswf_smoke",
         f"#PBS -q {queue}",
         "#PBS -l select=1:ncpus=1:mpiprocs=1",
-        f"#PBS -l walltime={walltime}",
-        f"#PBS -o {stdout}",
-        f"#PBS -e {stderr}",
-        "set -euo pipefail",
-        "umask 002",
-        f"cd {shlex.quote(str(run_dir))}",
-        "ulimit -s unlimited",
     ]
+    _append_pbs_placement(lines, pbs)
+    lines.extend(
+        [
+            f"#PBS -l walltime={walltime}",
+            f"#PBS -o {stdout}",
+            f"#PBS -e {stderr}",
+            "set -euo pipefail",
+            "umask 002",
+            f"cd {shlex.quote(str(run_dir))}",
+            "ulimit -s unlimited",
+        ]
+    )
     _append_pbs_runtime_setup(lines, pbs)
     lines.extend(
         [
