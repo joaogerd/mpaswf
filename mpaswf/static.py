@@ -25,7 +25,19 @@ from .ui import status
 
 @dataclass(frozen=True)
 class StaticRun:
-    """Resolved paths for the one-time static interpolation stage."""
+    """Resolved paths for the one-time static interpolation stage.
+
+    Parameters
+    ----------
+    reference_time : datetime
+        Fixed timestamp used only by the static MPAS namelist and streams.
+    run_dir : pathlib.Path
+        Directory where ``mpas_init_atmosphere`` creates the static product.
+    state_path : pathlib.Path
+        Generated mesh-level static NetCDF product.
+    manifest_path : pathlib.Path
+        Persistent MPASWF state file for this stage.
+    """
 
     reference_time: datetime
     run_dir: Path
@@ -34,7 +46,20 @@ class StaticRun:
 
 
 def load_static_run(config: WorkflowConfig, layout: Layout) -> StaticRun:
-    """Resolve static-stage paths without modifying the file system."""
+    """Resolve static-stage paths without modifying the file system.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign layout.
+
+    Returns
+    -------
+    StaticRun
+        Static-stage file-system contract.
+    """
     reference_time = parse_time(string(config, "static.reference_time") or "")
     run_dir = layout.static_dir
     context = layout.context(reference_time, reference_time, 0, run_dir)
@@ -53,7 +78,25 @@ def prepare_static(
     *,
     force: bool = False,
 ) -> StaticRun:
-    """Stage the one-time ``mpas_init_atmosphere`` run."""
+    """Stage the one-time static ``mpas_init_atmosphere`` run.
+
+    The function is idempotent. A non-empty static product is reused unless
+    ``force`` is requested.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign layout.
+    force : bool, default=False
+        Re-render the stage even when the static product already exists.
+
+    Returns
+    -------
+    StaticRun
+        Prepared static-stage contract.
+    """
     run = load_static_run(config, layout)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
@@ -65,6 +108,8 @@ def prepare_static(
     context = layout.context(run.reference_time, run.reference_time, 0, run.run_dir)
     context.update({"static_state": str(run.state_path)})
 
+    # Shared mesh and support files are linked; the generated static product is
+    # deliberately not listed among them because it does not exist yet.
     stage_common_links(config, run.run_dir, context)
     render_template(
         layout.templates_dir / (string(config, "templates.static_namelist") or ""),
@@ -96,7 +141,26 @@ def execute_static(
     wait: bool,
     force: bool = False,
 ) -> StaticRun:
-    """Run, render, or submit the one-time static interpolation job."""
+    """Run, render, or submit the one-time static interpolation job.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign layout.
+    submit : bool
+        Submit the PBS job when the configured backend is PBS.
+    wait : bool
+        Wait for completion and validate the static product after submission.
+    force : bool, default=False
+        Ignore an existing static product and rerun the stage.
+
+    Returns
+    -------
+    StaticRun
+        Static-stage contract after local execution or PBS preparation.
+    """
     run = prepare_static(config, layout, force=force)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
@@ -150,7 +214,20 @@ def execute_static(
 
 
 def validate_static(config: WorkflowConfig, layout: Layout) -> Path:
-    """Validate the generated mesh-level static MPAS product."""
+    """Validate the generated mesh-level static MPAS product.
+
+    Parameters
+    ----------
+    config : WorkflowConfig
+        Loaded workflow configuration.
+    layout : Layout
+        Resolved campaign layout.
+
+    Returns
+    -------
+    pathlib.Path
+        Validation report path.
+    """
     run = load_static_run(config, layout)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     require_netcdf = bool(value(config, "validation.require_netcdf", required=False, default=False))
