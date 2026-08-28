@@ -12,7 +12,7 @@ from .gfs import ensure_gfs
 from .layout import Layout
 from .ui import status
 from .model import render_time_context
-from .validation import validate_file
+from .software import monan_jedi_root, wps_executable, wps_vtable
 
 
 def _argv(raw: object, context: dict[str, str], label: str) -> list[str]:
@@ -31,24 +31,7 @@ def wps_output_path(config: WorkflowConfig, layout: Layout, init_time: datetime)
 
 
 def prepare_wps(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> Path:
-    """Download/stage GFS plus WPS inputs and run `link_grib` and `ungrib`.
-
-    Parameters
-    ----------
-    config : WorkflowConfig
-        Loaded configuration.
-    layout : Layout
-        Resolved directory layout.
-    init_time : datetime
-        WPS product time.
-    force : bool, default=False
-        Re-run WPS even when the expected `FILE:` product is valid.
-
-    Returns
-    -------
-    pathlib.Path
-        Validated WPS `FILE:` product.
-    """
+    """Download/stage GFS plus WPS inputs and run `link_grib` and `ungrib`."""
     run_dir = layout.wps_dir(init_time)
     output = wps_output_path(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
@@ -63,18 +46,25 @@ def prepare_wps(config: WorkflowConfig, layout: Layout, init_time: datetime, *, 
     context = layout.context(init_time, init_time, 0, run_dir)
     context.update({"gfs_file": str(gfs.path), "wps_file": str(output)})
 
-    wps_root = Path(string(config, "executables.wps_dir") or "").expanduser()
-    if not wps_root.is_dir():
-        raise FileNotFoundError(f"WPS directory does not exist: {wps_root}")
-    vtable_raw = string(config, "wps.vtable") or ""
-    context["wps_dir"] = str(wps_root)
-    vtable = Path(render(vtable_raw, context)).expanduser()
-    if not vtable.is_absolute():
-        vtable = (config.root / vtable).resolve()
+    root = monan_jedi_root(config)
+    if root is not None:
+        context["monan_jedi_root"] = str(root)
 
-    # Stage WPS executables as links to preserve the reference installation.
-    ensure_link(wps_root / "link_grib.csh", run_dir / "link_grib.csh")
-    ensure_link(wps_root / "ungrib.exe", run_dir / "ungrib.exe")
+    link_grib = wps_executable(config, "link_grib.csh")
+    ungrib = wps_executable(config, "ungrib.exe")
+    vtable = wps_vtable(config, context)
+
+    for path, description in (
+        (link_grib, "link_grib.csh"),
+        (ungrib, "ungrib.exe"),
+        (vtable, "WPS Vtable"),
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"{description} does not exist: {path}")
+
+    # Stage links from the installed runtime contract into the cycle directory.
+    ensure_link(link_grib, run_dir / "link_grib.csh")
+    ensure_link(ungrib, run_dir / "ungrib.exe")
     ensure_link(vtable, run_dir / "Vtable")
 
     template_name = string(config, "templates.wps") or ""
@@ -88,6 +78,9 @@ def prepare_wps(config: WorkflowConfig, layout: Layout, init_time: datetime, *, 
         {
             "init_time": context["init_time"],
             "gfs_file": str(gfs.path),
+            "ungrib": str(ungrib),
+            "link_grib": str(link_grib),
+            "vtable": str(vtable),
             "output": str(output),
             "state": "prepared",
         },
@@ -112,5 +105,16 @@ def prepare_wps(config: WorkflowConfig, layout: Layout, init_time: datetime, *, 
     )
     validate_file(output, minimum_size, require_netcdf=False)
     status(f"WPS {label}: produced {output.name}.")
-    write_json(metadata, {"init_time": context["init_time"], "gfs_file": str(gfs.path), "output": str(output), "state": "completed"})
+    write_json(
+        metadata,
+        {
+            "init_time": context["init_time"],
+            "gfs_file": str(gfs.path),
+            "ungrib": str(ungrib),
+            "link_grib": str(link_grib),
+            "vtable": str(vtable),
+            "output": str(output),
+            "state": "completed",
+        },
+    )
     return output
