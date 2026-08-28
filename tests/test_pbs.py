@@ -23,6 +23,11 @@ def test_wait_message_matches_bmatrix_live_status() -> None:
 
 def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     """Rendered PBS files keep the informative stage-specific submission name."""
+    bootstrap = [
+        "module --force purge 2>/dev/null || module purge",
+        "module use /stack/modules",
+        "module load jedi-mpas-env/1.0.0",
+    ]
     config = WorkflowConfig(
         path=tmp_path / "config.yaml",
         data={
@@ -32,8 +37,9 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                 "ncpus": 128,
                 "mpiprocs": 128,
                 "launcher": ["mpiexec", "-n", "{mpi_ranks}"],
+                "bootstrap": bootstrap,
                 "modules": [],
-                "environment": {},
+                "environment": {"OMP_NUM_THREADS": "1"},
             }
         },
     )
@@ -54,4 +60,9 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     assert job.script.parent == run_dir
     rendered = job.script.read_text(encoding="utf-8")
     assert "#PBS -N mpasinit_2018041500" in rendered
+    assert "umask 002" in rendered
+    assert "module load jedi-mpas-env/1.0.0" in rendered
+    assert "export OMP_NUM_THREADS=1" in rendered
     assert "mpiexec -n 128" in rendered
+    assert rendered.index(bootstrap[0]) < rendered.index("mpiexec -n 128")
+    assert rendered.index(bootstrap[-1]) < rendered.index("mpiexec -n 128")
