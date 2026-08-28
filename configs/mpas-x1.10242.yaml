@@ -2,193 +2,51 @@
 # MPASWF — WORKFLOW CONTRACT FOR THE x1.10242 MESH
 # ==============================================================================
 #
-# This file describes WHAT MPASWF should produce and HOW the GFS/WPS/MPAS
-# products are named. It intentionally does not contain machine-specific paths,
-# installed executables, or PBS resources; those belong to a platform file such
-# as configs/jaci-x1.10242.yaml.
-#
-# The platform file points here with:
-#
-#   workflow:
-#     configuration: mpas-x1.10242.yaml
-#
-# Users still run MPASWF with ONE --config argument, pointing to the platform
-# file. MPASWF loads and merges this contract internally:
-#
-#   CONFIG=configs/jaci-x1.10242.yaml
-#   mpaswf run --phase prepare  --config "$CONFIG"
-#   mpaswf run --phase init     --config "$CONFIG" --submit --wait
-#   mpaswf run --phase forecast --config "$CONFIG" --submit --wait
-#   mpaswf run --phase manifest --config "$CONFIG"
-#
-# FIRST-TIME MPAS USERS
-# ---------------------
-# Read docs/getting-started.md before changing this file. The most important
-# concepts are:
-#
-#   initialization time : when a model forecast starts
-#   forecast lead       : how many hours the model is integrated (24 or 48 here)
-#   valid time          : initialization time + forecast lead
-#   static product      : mesh/geography information generated once per mesh
-#   initial state       : atmosphere at one initialization time
-#   forecast product    : model state at the requested valid time
-#
-# For the NMC method used by MPAS-BMatrix, two forecasts must describe the SAME
-# valid time T:
-#
-#   f048: initialized at T - 48 h and valid at T
-#   f024: initialized at T - 24 h and valid at T
-#
-# The final manifest pairs those two states for every requested T. Therefore
-# campaign.start_valid_time and campaign.end_valid_time below are VALID TIMES,
-# not forecast start times.
-#
+# This file describes WHAT MPASWF produces. Machine paths and the MONAN-JEDI
+# installation prefix belong in configs/jaci-x1.10242.yaml.
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# 1. CAMPAIGN
-# ------------------------------------------------------------------------------
-# This block defines the valid times for which forecast pairs will be produced.
-#
-# Example below:
-#   valid times: 2026-06-22 00Z, 23 00Z, 24 00Z, 25 00Z
-#   leads:       24 h and 48 h
-#
-# For valid time 2026-06-22 00Z, MPASWF therefore needs:
-#   f048 initialization: 2026-06-20 00Z
-#   f024 initialization: 2026-06-21 00Z
-#
-# `interval_hours` is the spacing between consecutive valid times.
-# For MPAS-BMatrix NMC production, keep `leads_hours: [24, 48]` unless the
-# scientific method is intentionally changed.
 campaign:
+  # Valid times requested by the NMC forecast-pair workflow.
   start_valid_time: "2026-06-22T00:00:00Z"
   end_valid_time: "2026-06-25T00:00:00Z"
   interval_hours: 24
   leads_hours: [24, 48]
 
-# ------------------------------------------------------------------------------
-# 2. GFS INPUT
-# ------------------------------------------------------------------------------
-# MPAS initialization begins from meteorological fields decoded from GFS. MPASWF
-# expects one GFS analysis (f000) for every required initialization time.
-#
-# Files are looked up below:
-#
-#   <paths.gfs_dir>/<YYYYMMDDHH>/<file_template>
-#
-# Example for initialization 2026-06-20 00Z:
-#
-#   <gfs_dir>/2026062000/gfs.t00z.pgrb2.0p25.f000
-#
-# `file_template` supports time placeholders such as {init_hour} and
-# {init_yyyymmddhh}. See docs/configuration.md for the supported placeholders.
-#
-# If `url_template` is null, MPASWF requires the file to already exist locally.
-# If a URL template is configured, MPASWF may download missing files before WPS.
 gfs:
+  # One f000 analysis is required for every unique initialization time.
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
-
-  # Example only; use a real source if automatic acquisition is desired.
-  # url_template: "https://server/gfs.{init_yyyymmddhh}/{gfs_file}"
   url_template: null
-
-  # A simple guard against empty or obviously truncated GRIB2 input files.
   minimum_size_bytes: 1048576
 
-# ------------------------------------------------------------------------------
-# 3. WPS / UNGRIB CONTRACT
-# ------------------------------------------------------------------------------
-# WPS (Weather Research and Forecasting Preprocessing System) converts the GFS
-# GRIB2 fields into intermediate files that MPAS initialization can ingest.
-# MPASWF uses only the `link_grib.csh` and `ungrib.exe` part of WPS here.
-#
-# `executables.wps_dir` is machine-specific and is defined in the platform file.
 wps:
-  # Name of the WPS intermediate file expected after ungrib. For 2026-06-20 00Z
-  # this becomes FILE:2026-06-20_00.
+  # WPS executables and tables are resolved from software.monan_jedi_root.
+  # Only the table NAME is part of this workflow contract; its installation
+  # path is ${monan_jedi_root}/share/wps/Variable_Tables/<name>.
+  vtable_name: Vtable.GFS
   output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
-
-  # GFS variable table inside the configured WPS installation.
-  vtable: "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
-
-  # Filename used for the rendered WPS namelist in each cycle directory.
   namelist_target: namelist.wps
-
-  # Commands executed from the cycle-specific WPS working directory. MPASWF
-  # stages links to link_grib.csh and ungrib.exe before invoking them.
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
   ungrib_command: ["./ungrib.exe"]
 
-# ------------------------------------------------------------------------------
-# 4. MPAS PRODUCT NAMES
-# ------------------------------------------------------------------------------
-# These filenames must agree with the streams/namelist templates used by the
-# installed MPAS case. Changing names here without changing the corresponding
-# streams configuration may cause MPASWF to look for files that MPAS never wrote.
 products:
-  # Date-dependent state produced by mpas_init_atmosphere.
   init_state_template: "x1.10242.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc"
-
-  # Restart state produced by mpas_atmosphere at the forecast valid time.
   restart_template: "restart.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
-
-  # Analysis/DA-friendly MPAS state used by the downstream NMC/B-matrix workflow.
   da_state_template: "mpasout.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
 
-# ------------------------------------------------------------------------------
-# 5. WPS / MPAS TEMPLATE FILES
-# ------------------------------------------------------------------------------
-# These are TEMPLATE FILENAMES, not absolute paths. Their directory is defined
-# by `paths.cdct_templates_dir` in the platform configuration.
-#
-# MPASWF renders stage/cycle-specific copies into each run directory. It never
-# modifies the source templates.
-#
-# Why are templates external instead of generated automatically?
-# MPAS namelist and streams settings depend on the MPAS build, mesh, physics,
-# input data, and the scientifically validated reference case. MPASWF therefore
-# requires explicit validated templates instead of inventing generic defaults.
 templates:
-  # WPS namelist used before ungrib.
   wps: "namelist.wps.in"
-
-  # One-time static interpolation configuration for mpas_init_atmosphere.
   static_namelist: "namelist.init_atmosphere.static.in"
   static_streams: "streams.init_atmosphere.static.in"
-
-  # Date-dependent atmospheric initialization configuration.
   init_namelist: "namelist.init_atmosphere.in"
   init_streams: "streams.init_atmosphere.in"
-
-  # Forecast integration configuration for mpas_atmosphere.
   forecast_namelist: "namelist.atmosphere.in"
   forecast_streams: "streams.atmosphere.in"
 
-# ------------------------------------------------------------------------------
-# 6. MESH-LEVEL STATIC MPAS PRODUCT
-# ------------------------------------------------------------------------------
-# The static product contains mesh/geography information required by later MPAS
-# initialization runs. It is generated once by mpas_init_atmosphere and reused
-# for every campaign cycle as long as it passes validation.
-#
-# The machine-specific input files needed to generate it (grid, partition,
-# invariant/support files) are declared as `static.links` in the platform file.
-# Never list x1.10242.static.nc itself in static.links: it is the stage OUTPUT.
 static:
-  # Reference timestamp required by the validated static namelist/streams.
   reference_time: "2010-10-23T00:00:00Z"
-
-  # Expected generated static NetCDF filename.
   product_template: "x1.10242.static.nc"
 
-# ------------------------------------------------------------------------------
-# 7. PRODUCT VALIDATION
-# ------------------------------------------------------------------------------
-# MPASWF only reuses a declared output when it passes these basic checks.
-# `minimum_size_bytes` catches empty/truncated outputs. When `require_netcdf` is
-# true, MPASWF also attempts NetCDF validation through its optional NetCDF
-# dependency.
 validation:
   require_netcdf: false
   minimum_size_bytes: 1024

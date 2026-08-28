@@ -1,23 +1,15 @@
 # MPASWF configuration files
 
-This directory contains the recommended split configuration used by MPASWF.
-The goal is to keep machine-specific details separate from the workflow/campaign
-contract while preserving the original command-line interface.
-
-A first-time user should read [`docs/getting-started.md`](../docs/getting-started.md)
-before editing these files. That guide explains the MPAS/WPS concepts, required
-external files, installation checks, execution order, expected outputs, and
-common failures.
-
-## Files
+The recommended configuration separates site/runtime settings from the campaign
+contract while keeping the CLI simple.
 
 ```text
 configs/
-├── jaci-x1.10242.yaml   # platform: paths, executables, mesh assets, PBS/MPI
-└── mpas-x1.10242.yaml   # workflow: campaign, GFS/WPS, products, templates
+├── jaci-x1.10242.yaml   # site, MONAN-JEDI root, mesh inputs, PBS/MPI
+└── mpas-x1.10242.yaml   # campaign, GFS/WPS conventions, products, templates
 ```
 
-You do **not** execute these two files separately. Pass only the platform file:
+Pass only the platform file:
 
 ```bash
 CONFIG=configs/jaci-x1.10242.yaml
@@ -29,37 +21,53 @@ mpaswf run --phase forecast --config "$CONFIG" --submit --wait
 mpaswf run --phase manifest --config "$CONFIG"
 ```
 
-The interface above is the same interface used by the MPAS-BMatrix forecast-pair
-tutorial.
+## Site/runtime file
 
-## Which file should I edit?
+`jaci-x1.10242.yaml` answers **where and how the workflow runs**. Its most
+important software setting is one public MONAN-JEDI prefix:
 
-Edit `jaci-x1.10242.yaml` when the change is about **where or how the software
-runs**:
+```yaml
+software:
+  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+```
 
-- campaign/work/data directories;
-- WPS installation;
-- `mpas_init_atmosphere` and `mpas_atmosphere` executables;
-- mesh, partition, invariant, tables, or other fixed support files;
-- local versus PBS execution;
-- PBS queue, CPU/MPI resources, walltime, modules, and environment variables.
+From that root MPASWF derives:
 
-Edit `mpas-x1.10242.yaml` when the change is about **what campaign is produced**:
+```text
+bin/mpas_init_atmosphere
+bin/mpas_atmosphere
+bin/ungrib.exe
+bin/link_grib.csh
+share/wps/Variable_Tables/Vtable.GFS
+```
+
+Do not configure a WPS source/build/release directory for normal use. Those are
+private to MONAN-JEDI.
+
+The same platform file also owns:
+
+- workflow/data directories;
+- mesh and partition input paths;
+- validated template directory;
+- local/PBS backend selection;
+- queue, CPU/MPI resources, walltimes and runtime environment.
+
+## Workflow/campaign file
+
+`mpas-x1.10242.yaml` answers **what is produced**:
 
 - requested valid times;
-- 24 h / 48 h forecast leads;
-- GFS filename convention or acquisition URL;
-- WPS intermediate filename convention;
-- expected MPAS output filenames;
-- source template filenames;
-- static-product naming/reference time;
-- output validation rules.
+- f024/f048 forecast leads;
+- GFS filename/acquisition convention;
+- WPS intermediate naming and Vtable filename;
+- expected MPAS products;
+- template filenames;
+- static-product reference time/name;
+- validation rules.
 
-For ordinary use on JACI, most machine setup belongs in `jaci-x1.10242.yaml`,
-while the most common campaign edit is the `campaign` block in
-`mpas-x1.10242.yaml`.
+It deliberately contains no installed-software paths.
 
-## How the two files are connected
+## Composition
 
 The platform file contains:
 
@@ -68,56 +76,34 @@ workflow:
   configuration: mpas-x1.10242.yaml
 ```
 
-MPASWF loads the workflow contract first and then deep-merges the platform file
-over it. Nested mappings are combined recursively. Lists are atomic: if the
-platform file defines a list, that list replaces the corresponding list instead
-of being concatenated implicitly.
-
-For example, the workflow contract can define:
-
-```yaml
-static:
-  reference_time: "2010-10-23T00:00:00Z"
-  product_template: "x1.10242.static.nc"
-```
-
-while the platform file defines only the machine-specific inputs:
-
-```yaml
-static:
-  links:
-    - source: /path/to/x1.10242.grid.nc
-      target: x1.10242.grid.nc
-```
-
-The running workflow sees one merged `static` block containing all three keys.
+MPASWF loads the workflow contract first and deep-merges the platform document
+over it. Nested mappings are merged recursively and lists are replaced atomically.
 
 ## Environment variables
 
-Environment variables are expanded recursively in YAML string values. This is
-why the JACI configuration can use:
+Environment variables are expanded recursively. The standard JACI configuration
+therefore resolves `$USER` automatically, including the default MONAN-JEDI
+installation:
 
-```yaml
-paths:
-  work_dir: /p/projetos/monan_das/$USER/work/mpaswf
+```text
+/p/projetos/monan_das/$USER/build/monan-jedi
 ```
-
-Before a first run, verify every required path. The comments inside
-`jaci-x1.10242.yaml` include concrete `test -d` / `test -x` checks and explain
-what each path must contain.
 
 ## Backward compatibility
 
-The historical single-YAML format remains supported. `examples/config.yaml` is
-kept as a self-contained compatibility example. Therefore existing scripts may
-continue to do:
+Historical self-contained YAMLs remain supported. If no
+`software.monan_jedi_root` is configured, MPASWF still accepts the legacy keys:
 
-```bash
-mpaswf run --phase forecast --config "$MPASWF_CONFIG" --submit --wait
+```yaml
+executables:
+  wps_dir: /legacy/WPS
+  mpas_init: /legacy/bin/mpas_init_atmosphere
+  mpas_atmosphere: /legacy/bin/mpas_atmosphere
 ```
 
-regardless of whether `$MPASWF_CONFIG` points to a complete single YAML or to a
-platform YAML that references a workflow contract.
+and legacy `wps.vtable` templates using `{wps_dir}`. These keys are maintained to
+avoid breaking existing experiments; new site configurations should use the
+single MONAN-JEDI root.
 
-For the complete field-by-field reference, see
-[`docs/configuration.md`](../docs/configuration.md).
+See [docs/getting-started.md](../docs/getting-started.md) and
+[docs/configuration.md](../docs/configuration.md).

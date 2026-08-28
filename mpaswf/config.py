@@ -7,9 +7,9 @@ MPASWF accepts two equivalent configuration layouts:
   ``workflow.configuration``.
 
 The split form mirrors the organization used by MPAS-BMatrix: machine-specific
-paths, executables and PBS settings stay separate from campaign/scientific
-settings.  The public CLI is unchanged; callers still pass exactly one
-``--config`` path.
+paths, software installation settings and PBS resources stay separate from
+campaign/scientific settings. The public CLI is unchanged; callers still pass
+exactly one ``--config`` path.
 """
 
 from __future__ import annotations
@@ -113,10 +113,9 @@ def load_config(path: Path) -> WorkflowConfig:
     """Load one self-contained config or a platform + workflow config pair.
 
     The command-line contract remains unchanged: callers provide one path with
-    ``--config``.  When that document contains ``workflow.configuration``, the
+    ``--config``. When that document contains ``workflow.configuration``, the
     referenced workflow contract is loaded first and the platform document is
-    deep-merged over it.  Existing all-in-one files continue to work exactly as
-    before.
+    deep-merged over it. Existing all-in-one files continue to work.
     """
     platform_path = Path(path).expanduser().resolve()
     platform = _expand_env(_load_yaml(platform_path))
@@ -127,7 +126,7 @@ def load_config(path: Path) -> WorkflowConfig:
     else:
         contract = _expand_env(_load_yaml(contract_path))
         merged = _deep_merge(contract, platform)
-        # Provenance metadata is intentionally non-operational.  It helps
+        # Provenance metadata is intentionally non-operational. It helps
         # diagnostics without changing any existing configuration key.
         merged["workflow_contract_path"] = str(contract_path)
 
@@ -191,8 +190,14 @@ def render(template: str, context: Mapping[str, str]) -> str:
 
 
 def validate_config(config: WorkflowConfig) -> None:
-    """Perform the intentionally small MPASWF schema validation."""
-    for section in ("paths", "executables", "campaign", "gfs", "wps", "products", "templates", "static", "execution", "validation"):
+    """Perform the intentionally small MPASWF schema validation.
+
+    New platform configurations declare one ``software.monan_jedi_root`` and
+    derive MPAS/WPS runtime files from its ``bin`` and ``share`` directories.
+    Historical all-in-one configurations with ``executables.*`` remain valid so
+    existing experiments do not break during the transition.
+    """
+    for section in ("paths", "campaign", "gfs", "wps", "products", "templates", "static", "execution", "validation"):
         mapping(config, section)
 
     for key in (
@@ -200,9 +205,6 @@ def validate_config(config: WorkflowConfig) -> None:
         "paths.static_dir",
         "paths.gfs_dir",
         "paths.cdct_templates_dir",
-        "executables.wps_dir",
-        "executables.mpas_init",
-        "executables.mpas_atmosphere",
         "campaign.start_valid_time",
         "campaign.end_valid_time",
         "gfs.file_template",
@@ -222,6 +224,16 @@ def validate_config(config: WorkflowConfig) -> None:
         "execution.backend",
     ):
         string(config, key)
+
+    monan_root = string(config, "software.monan_jedi_root", required=False, default=None)
+    if monan_root is None:
+        mapping(config, "executables")
+        for key in (
+            "executables.wps_dir",
+            "executables.mpas_init",
+            "executables.mpas_atmosphere",
+        ):
+            string(config, key)
 
     leads = value(config, "campaign.leads_hours")
     if not isinstance(leads, list) or not all(isinstance(item, int) for item in leads):

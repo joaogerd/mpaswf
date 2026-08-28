@@ -18,6 +18,7 @@ from .files import ensure_directory, is_valid_file, render_template, write_json
 from .layout import Layout
 from .model import parse_time
 from .pbs import render_pbs_job, submit_pbs, wait_pbs
+from .software import installed_executable
 from .validation import validate_file
 from .ui import status
 
@@ -165,7 +166,7 @@ def execute_static(
     if is_valid_file(run.state_path, minimum_size) and not force:
         return run
 
-    executable = Path(string(config, "executables.mpas_init") or "").expanduser()
+    executable = installed_executable(config, "executables.mpas_init", "mpas_init_atmosphere")
     if not executable.is_file():
         raise FileNotFoundError(f"mpas_init_atmosphere executable does not exist: {executable}")
     backend = string(config, "execution.backend")

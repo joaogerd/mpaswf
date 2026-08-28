@@ -14,6 +14,7 @@ from .init import load_init_run, validate_init
 from .layout import Layout
 from .model import ForecastRequest
 from .pbs import render_pbs_job, submit_pbs, wait_pbs
+from .software import installed_executable
 from .validation import validate_file
 from .ui import status
 
@@ -65,7 +66,6 @@ def prepare_forecast(config: WorkflowConfig, layout: Layout, request: ForecastRe
         }
     )
 
-    # CD-CT streams commonly expect an initial state under a local fixed name.
     ensure_link(init_run.state_path, run.run_dir / init_run.state_path.name)
     stage_common_links(config, run.run_dir, context)
     render_template(layout.templates_dir / (string(config, "templates.forecast_namelist") or ""), run.run_dir / "namelist.atmosphere", context)
@@ -101,7 +101,7 @@ def execute_forecast(
     if complete and not force:
         return run
 
-    executable = Path(string(config, "executables.mpas_atmosphere") or "").expanduser()
+    executable = installed_executable(config, "executables.mpas_atmosphere", "mpas_atmosphere")
     if not executable.is_file():
         raise FileNotFoundError(f"mpas_atmosphere executable does not exist: {executable}")
     backend = string(config, "execution.backend")
