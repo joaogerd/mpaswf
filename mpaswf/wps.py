@@ -13,6 +13,7 @@ from .layout import Layout
 from .ui import status
 from .model import render_time_context
 from .software import monan_jedi_root, wps_executable, wps_vtable
+from .validation import validate_file
 
 
 def _argv(raw: object, context: dict[str, str], label: str) -> list[str]:
