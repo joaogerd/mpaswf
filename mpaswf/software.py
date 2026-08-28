@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
-from .config import ConfigurationError, WorkflowConfig, render, string, value
+from .config import ConfigurationError, WorkflowConfig, render, string
 
 
 def monan_jedi_root(config: WorkflowConfig) -> Path | None:
@@ -71,34 +71,21 @@ def wps_vtable(config: WorkflowConfig, context: Mapping[str, str]) -> Path:
             raise ConfigurationError("wps.vtable_name must be a filename, not a path.")
         return root / "share" / "wps" / "Variable_Tables" / name
 
-    raw = string(config, "wps.vtable", required=False, default=None)
-    if raw is None:
-        legacy_root = string(config, "executables.wps_dir", required=False, default=None)
-        if legacy_root is None:
-            raise ConfigurationError(
-                "Configure software.monan_jedi_root or legacy wps.vtable/executables.wps_dir settings."
-            )
-        raw = "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
-        context = {**context, "wps_dir": legacy_root}
+    # Historical configs use {wps_dir} inside wps.vtable. Preserve that render
+    # context even when an explicit legacy Vtable template is present.
+    legacy_root = string(config, "executables.wps_dir", required=False, default=None)
+    if legacy_root is None:
+        raise ConfigurationError(
+            "Configure software.monan_jedi_root or the legacy executables.wps_dir path."
+        )
+    legacy_context = {**context, "wps_dir": legacy_root}
+    raw = string(
+        config,
+        "wps.vtable",
+        required=False,
+        default="{wps_dir}/ungrib/Variable_Tables/Vtable.GFS",
+    ) or "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
 
-    rendered = render(raw, context)
+    rendered = render(raw, legacy_context)
     path = Path(rendered).expanduser()
     return path if path.is_absolute() else (config.root / path).resolve()
-
-
-def validate_software_contract(config: WorkflowConfig) -> None:
-    """Validate that either the canonical prefix or the legacy layout is declared."""
-    root = monan_jedi_root(config)
-    if root is not None:
-        return
-
-    for key in (
-        "executables.wps_dir",
-        "executables.mpas_init",
-        "executables.mpas_atmosphere",
-    ):
-        if value(config, key, required=False, default=None) is None:
-            raise ConfigurationError(
-                "software.monan_jedi_root is not configured and the legacy "
-                f"software contract is incomplete: missing {key}."
-            )
