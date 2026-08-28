@@ -38,9 +38,9 @@ paths:
   static_dir: /p/projetos/monan_das/$USER/work/mpaswf/static
   gfs_dir: /p/projetos/monan_das/$USER/data/gfs
 
-  # Validated case templates are scientific/runtime inputs, not compiled
-  # software. Keep them separate from the MONAN-JEDI install prefix.
-  cdct_templates_dir: /p/projetos/monan_das/$USER/projects/mpaswf-templates/x1.10242
+  # Case templates are versioned with MPASWF so a checkout is self-contained.
+  # This path is resolved relative to this platform configuration file.
+  cdct_templates_dir: ../templates/x1.10242
 
 # Fixed mesh/support inputs used by MPAS initialization and forecasts.
 static:
