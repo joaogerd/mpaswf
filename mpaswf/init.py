@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +12,7 @@ from .config import WorkflowConfig, render, string, value
 from .files import ensure_directory, ensure_link, is_valid_file, render_template, write_json
 from .layout import Layout
 from .pbs import render_pbs_job, submit_pbs, wait_pbs
+from .software import installed_executable
 from .validation import validate_file
 from .static import load_static_run, validate_static
 from .wps import wps_output_path
@@ -52,9 +52,7 @@ def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *,
     validate_file(wps_file, minimum_size)
     context.update({"wps_file": str(wps_file), "init_state": str(run.state_path)})
 
-    # Keep the WPS intermediate under its conventional name in the init directory.
     ensure_link(wps_file, run.run_dir / wps_file.name)
-    # Dynamic initialization consumes the static product generated once per mesh.
     static_run = load_static_run(config, layout)
     validate_static(config, layout)
     ensure_link(static_run.state_path, run.run_dir / static_run.state_path.name)
@@ -84,18 +82,13 @@ def execute_init(
     wait: bool,
     force: bool = False,
 ) -> InitRun:
-    """Run, render, or submit one MPAS initialization stage.
-
-    With `execution.backend: local`, the executable runs immediately. With
-    `execution.backend: pbs`, a PBS script is always rendered; it is submitted
-    only when `submit=True`.
-    """
+    """Run, render, or submit one MPAS initialization stage."""
     run = prepare_init(config, layout, init_time, force=force)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
         return run
 
-    executable = Path(string(config, "executables.mpas_init") or "").expanduser()
+    executable = installed_executable(config, "executables.mpas_init", "mpas_init_atmosphere")
     if not executable.is_file():
         raise FileNotFoundError(f"mpas_init_atmosphere executable does not exist: {executable}")
     backend = string(config, "execution.backend")
