@@ -59,6 +59,7 @@ pbs:
   select: 1
   ncpus: 128
   mpiprocs: 128
+  place: excl
 
   walltime_static: "00:20:00"
   walltime_init: "00:30:00"
