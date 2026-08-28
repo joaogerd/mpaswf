@@ -36,6 +36,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                 "select": 1,
                 "ncpus": 128,
                 "mpiprocs": 128,
+                "place": "excl",
                 "launcher": ["mpiexec", "-n", "{mpi_ranks}"],
                 "bootstrap": bootstrap,
                 "modules": [],
@@ -60,6 +61,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     assert job.script.parent == run_dir
     rendered = job.script.read_text(encoding="utf-8")
     assert "#PBS -N mpasinit_2018041500" in rendered
+    assert "#PBS -l place=excl" in rendered
     assert "umask 002" in rendered
     assert "module load jedi-mpas-env/1.0.0" in rendered
     assert "export OMP_NUM_THREADS=1" in rendered
