@@ -15,8 +15,10 @@ campaign:
 
 gfs:
   # One f000 analysis is required for every unique initialization time.
+  # Reuse an existing local file when present; otherwise download the complete
+  # 0.25-degree GFS GRIB2 product from NOAA's public AWS archive.
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
-  url_template: null
+  url_template: "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{init_yyyymmdd}/{init_hour}/atmos/{gfs_file}"
   minimum_size_bytes: 1048576
 
 wps:
