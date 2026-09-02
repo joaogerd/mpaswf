@@ -7,25 +7,17 @@
 # ==============================================================================
 
 campaign:
-  # Valid times requested by the NMC forecast-pair workflow.
   start_valid_time: "2026-06-22T00:00:00Z"
   end_valid_time: "2026-06-25T00:00:00Z"
   interval_hours: 24
   leads_hours: [24, 48]
 
 gfs:
-  # One f000 analysis is required for every unique initialization time.
-  # Reuse an existing local file when present; otherwise download the complete
-  # 0.25-degree GFS GRIB2 product from NOAA's public AWS archive.
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
   url_template: "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{init_yyyymmdd}/{init_hour}/atmos/{gfs_file}"
   minimum_size_bytes: 1048576
 
 wps:
-  # WPS executables and tables are resolved from software.monan_jedi_root.
-  # Only the table NAME is part of this workflow contract; its installation
-  # path is ${monan_jedi_root}/share/wps/Variable_Tables/<name>.
-  # The GFS prefix matches the validated CD-CT namelist.wps contract.
   vtable_name: Vtable.GFS
   output_template: "GFS:{init_date_yyyy_mm_dd_hh}"
   namelist_target: namelist.wps
@@ -53,3 +45,9 @@ static:
 validation:
   require_netcdf: false
   minimum_size_bytes: 1024
+  # The JACI reference case must fail before PBS if invariant/WPS/partition or
+  # the rendered scientific settings do not match the validated x1.10242 setup.
+  require_reference_preflight: true
+  # Do not accept a merely-created NetCDF after PBS: MPAS must also report zero
+  # critical and ordinary error messages in log.init_atmosphere.0000.out.
+  require_mpas_clean_log: true

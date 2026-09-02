@@ -37,8 +37,48 @@ def load_init_run(config: WorkflowConfig, layout: Layout, init_time: datetime) -
     return InitRun(init_time, run_dir, run_dir / state_name, run_dir / ".mpaswf" / "init.json")
 
 
+def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Path) -> None:
+    """Fail before PBS when the x1.10242 invariant-init contract is malformed."""
+    enabled = bool(value(config, "validation.require_reference_preflight", required=False, default=False))
+    if not enabled:
+        return
+
+    namelist_path = run.run_dir / "namelist.init_atmosphere"
+    streams_path = run.run_dir / "streams.init_atmosphere"
+    for path in (wps_file, namelist_path, streams_path, run.run_dir / "x1.10242.static.nc", run.run_dir / "x1.10242.graph.info.part.128"):
+        if not path.exists():
+            raise FileNotFoundError(f"MPAS init preflight input does not exist: {path}")
+
+    namelist = namelist_path.read_text(encoding="utf-8")
+    streams = streams_path.read_text(encoding="utf-8")
+    expected_time = run.init_time.strftime("%Y-%m-%d_%H:00:00")
+    required_namelist = (
+        "config_init_case = 7",
+        f"config_start_time = '{expected_time}'",
+        f"config_stop_time = '{expected_time}'",
+        "config_nvertlevels = 55",
+        "config_met_prefix = 'GFS'",
+        "config_sfc_prefix = 'GFS'",
+        "config_static_interp = .false.",
+        "config_native_gwd_static = .false.",
+        "config_native_gwd_gsl_static = .false.",
+        "config_vertical_grid = .true.",
+        "config_met_interp = .true.",
+        "config_block_decomp_file_prefix = 'x1.10242.graph.info.part.'",
+    )
+    for token in required_namelist:
+        if token not in namelist:
+            raise RuntimeError(f"MPAS init preflight: namelist is missing expected token: {token}")
+
+    for token in ("x1.10242.static.nc", run.state_path.name, 'clobber_mode="overwrite"'):
+        if token not in streams:
+            raise RuntimeError(f"MPAS init preflight: streams file is missing expected token: {token}")
+
+    status(f"MPAS init {run.init_time.strftime('%Y-%m-%d %HZ')}: reference preflight passed.")
+
+
 def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> InitRun:
-    """Stage one MPAS initialization directory from the CD-CT reference case."""
+    """Stage one MPAS initialization directory from validated invariant + GFS."""
     run = load_init_run(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
@@ -58,8 +98,17 @@ def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *,
     ensure_link(static_run.state_path, run.run_dir / static_run.state_path.name)
     stage_common_links(config, run.run_dir, context)
 
-    render_template(layout.templates_dir / (string(config, "templates.init_namelist") or ""), run.run_dir / "namelist.init_atmosphere", context)
-    render_template(layout.templates_dir / (string(config, "templates.init_streams") or ""), run.run_dir / "streams.init_atmosphere", context)
+    render_template(
+        layout.templates_dir / (string(config, "templates.init_namelist") or ""),
+        run.run_dir / "namelist.init_atmosphere",
+        context,
+    )
+    render_template(
+        layout.templates_dir / (string(config, "templates.init_streams") or ""),
+        run.run_dir / "streams.init_atmosphere",
+        context,
+    )
+    _validate_reference_setup(config, run, wps_file)
     write_json(
         run.manifest_path,
         {
@@ -136,11 +185,33 @@ def execute_init(
 
 
 def validate_init(config: WorkflowConfig, layout: Layout, init_time: datetime) -> Path:
-    """Validate one initialized MPAS state and persist a small report."""
+    """Validate one initialized MPAS state and, when requested, its model log."""
     run = load_init_run(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     require_netcdf = bool(value(config, "validation.require_netcdf", required=False, default=False))
     validate_file(run.state_path, minimum_size, require_netcdf=require_netcdf)
+
+    require_clean_log = bool(value(config, "validation.require_mpas_clean_log", required=False, default=False))
+    log_path = run.run_dir / "log.init_atmosphere.0000.out"
+    if require_clean_log:
+        if not log_path.is_file():
+            raise FileNotFoundError(f"MPAS init validation log does not exist: {log_path}")
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+        for token in (
+            "Critical error messages =            0",
+            "Error messages =                     0",
+        ):
+            if token not in text:
+                raise RuntimeError(f"MPAS init did not finish cleanly; missing {token!r} in {log_path}")
+
     report = run.manifest_path.with_name("init-validation.json")
-    write_json(report, {"init_time": init_time.strftime("%Y-%m-%dT%H:%M:%SZ"), "state_path": str(run.state_path), "valid": True})
+    write_json(
+        report,
+        {
+            "init_time": init_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "state_path": str(run.state_path),
+            "log_path": str(log_path) if require_clean_log else None,
+            "valid": True,
+        },
+    )
     return report
