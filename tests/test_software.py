@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from mpaswf.config import WorkflowConfig, load_config, value
-from mpaswf.software import installed_executable, monan_jedi_root, wps_executable, wps_vtable
+from mpaswf.software import (
+    atmosphere_share,
+    installed_executable,
+    monan_jedi_root,
+    wps_executable,
+    wps_vtable,
+)
 
 
 def _config(data: dict[str, object]) -> WorkflowConfig:
@@ -20,6 +26,7 @@ def test_jaci_configuration_uses_one_monan_jedi_root(monkeypatch) -> None:
     assert monan_jedi_root(config) == Path(expected)
     assert installed_executable(config, "executables.mpas_init", "mpas_init_atmosphere") == Path(expected) / "bin/mpas_init_atmosphere"
     assert installed_executable(config, "executables.mpas_atmosphere", "mpas_atmosphere") == Path(expected) / "bin/mpas_atmosphere"
+    assert atmosphere_share(config) == Path(expected) / "share/MPAS/core_atmosphere"
     assert wps_executable(config, "ungrib.exe") == Path(expected) / "bin/ungrib.exe"
     assert wps_executable(config, "link_grib.csh") == Path(expected) / "bin/link_grib.csh"
     assert wps_vtable(config, {}) == Path(expected) / "share/wps/Variable_Tables/Vtable.GFS"
@@ -32,6 +39,7 @@ def test_legacy_executable_layout_remains_supported() -> None:
                 "wps_dir": "/legacy/WPS",
                 "mpas_init": "/legacy/bin/mpas_init_atmosphere",
                 "mpas_atmosphere": "/legacy/bin/mpas_atmosphere",
+                "mpas_atmosphere_share": "/legacy/share/MPAS/core_atmosphere",
             },
             "wps": {"vtable": "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"},
         }
@@ -39,5 +47,6 @@ def test_legacy_executable_layout_remains_supported() -> None:
 
     assert monan_jedi_root(config) is None
     assert installed_executable(config, "executables.mpas_init", "mpas_init_atmosphere") == Path("/legacy/bin/mpas_init_atmosphere")
+    assert atmosphere_share(config) == Path("/legacy/share/MPAS/core_atmosphere")
     assert wps_executable(config, "ungrib.exe") == Path("/legacy/WPS/ungrib.exe")
     assert wps_vtable(config, {"wps_dir": "/legacy/WPS"}) == Path("/legacy/WPS/ungrib/Variable_Tables/Vtable.GFS")
