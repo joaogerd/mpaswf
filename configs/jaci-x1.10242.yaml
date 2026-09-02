@@ -31,6 +31,9 @@ static:
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
       target: x1.10242.grid.nc
 
+    - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/graph/x1.10242.graph.info
+      target: x1.10242.graph.info
+
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
       target: x1.10242.graph.info.part.128
 
@@ -39,6 +42,7 @@ execution:
 
 pbs:
   queue: pesqmini
+  queue_forecast: pesqmidi
   select: 1
   ncpus: 128
   mpiprocs: 128
@@ -47,6 +51,8 @@ pbs:
   walltime_static: "00:20:00"
   walltime_init: "00:30:00"
   walltime_forecast: "03:00:00"
+  walltime_forecast_f024: "01:00:00"
+  walltime_forecast_f048: "02:00:00"
 
   queue_smoke: pesqmini
   walltime_smoke: "00:02:00"

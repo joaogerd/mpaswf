@@ -35,6 +35,9 @@ templates:
   static_streams: "streams.init_atmosphere.static.in"
   init_namelist: "namelist.init_atmosphere.in"
   init_streams: "streams.init_atmosphere.in"
+  # Retained for generic/self-contained configurations. The JACI reference
+  # forecast uses the validated 240-km tutorial namelist/streams and patches only
+  # the explicit run-time settings before PBS submission.
   forecast_namelist: "namelist.atmosphere.in"
   forecast_streams: "streams.atmosphere.in"
 
@@ -42,12 +45,17 @@ static:
   reference_time: "2010-10-23T00:00:00Z"
   product_template: "x1.10242.static.nc"
 
+runtime:
+  # Values used by the previously validated x1.10242 NMC forecast workflow.
+  config_dt: 60
+  output_interval: "24:00:00"
+
 validation:
   require_netcdf: false
   minimum_size_bytes: 1024
-  # The JACI reference case must fail before PBS if invariant/WPS/partition or
-  # the rendered scientific settings do not match the validated x1.10242 setup.
+  # The JACI reference case must fail before PBS if invariant, initialized state,
+  # graph/partition, physics tables, stream lists or rendered settings are wrong.
   require_reference_preflight: true
-  # Do not accept a merely-created NetCDF after PBS: MPAS must also report zero
-  # critical and ordinary error messages in log.init_atmosphere.0000.out.
+  # Do not accept merely-created NetCDF products: MPAS init and forecast logs
+  # must both report zero critical and ordinary error messages.
   require_mpas_clean_log: true
