@@ -8,28 +8,11 @@
 # The software contract is intentionally simple: MPASWF consumes one validated
 # MONAN-JEDI installation prefix. It does not know where MONAN-JEDI sources,
 # build trees, WPS source trees, or versioned WPS releases are located.
-#
-# Expected public layout below software.monan_jedi_root:
-#
-#   bin/mpas_init_atmosphere
-#   bin/mpas_atmosphere
-#   bin/ungrib.exe
-#   bin/link_grib.csh
-#   share/wps/Variable_Tables/Vtable.GFS
-#
-# The compiled runtime still depends on the validated external spack-stack.
-# PBS jobs therefore bootstrap the same JACI/JEDI environment used to build and
-# validate MONAN-JEDI before invoking mpiexec. This is a separate runtime-
-# environment contract; it does not expose MONAN-JEDI source/build paths.
-#
-# Historical all-in-one configs with executables.wps_dir/mpas_init/
-# mpas_atmosphere remain supported as a compatibility fallback.
 # ==============================================================================
 
 workflow:
   configuration: mpas-x1.10242.yaml
 
-# One public software prefix produced by GAD-DIMNT-CPTEC/MONAN-JEDI.
 software:
   monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
 
@@ -37,13 +20,13 @@ paths:
   work_dir: /p/projetos/monan_das/$USER/work/mpaswf
   static_dir: /p/projetos/monan_das/$USER/work/mpaswf/static
   gfs_dir: /p/projetos/monan_das/$USER/data/gfs
-
-  # Case templates are versioned with MPASWF so a checkout is self-contained.
-  # This path is resolved relative to this platform configuration file.
   cdct_templates_dir: ../templates/x1.10242
 
-# Fixed mesh/support inputs used by MPAS initialization and forecasts.
+# The validated NMC/x1.10242 workflow reuses the consolidated MPAS-JEDI
+# tutorial invariant instead of recomputing static fields from WPS_GEOG.
 static:
+  source: /p/projetos/monan_das/$USER/external-inputs/mpasjedi_tutorial202509NCAR/MPAS_namelist_stream_physics_files/x1.10242.invariant.nc
+  tutorial_physics_files: /p/projetos/monan_das/$USER/external-inputs/mpasjedi_tutorial202509NCAR/MPAS_namelist_stream_physics_files
   links:
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
       target: x1.10242.grid.nc
@@ -73,8 +56,6 @@ pbs:
   qstat_command: ["qstat", "-f"]
   poll_seconds: 30
 
-  # Compute-node bootstrap for the exact validated JACI spack-stack/JEDI
-  # environment. The same sequence is used by pbs-smoke, init and forecast.
   bootstrap:
     - "module --force purge 2>/dev/null || module purge"
     - "module use /opt/cray/pe/modulefiles"
