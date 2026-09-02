@@ -45,6 +45,22 @@ def installed_executable(config: WorkflowConfig, legacy_key: str, filename: str)
     return path if path.is_absolute() else (config.root / path).resolve()
 
 
+def atmosphere_share(config: WorkflowConfig) -> Path:
+    """Resolve the public MPAS atmosphere runtime-data directory."""
+    root = monan_jedi_root(config)
+    if root is not None:
+        return root / "share" / "MPAS" / "core_atmosphere"
+
+    raw = string(config, "executables.mpas_atmosphere_share", required=False, default=None)
+    if raw is None:
+        raise ConfigurationError(
+            "Configure software.monan_jedi_root or the legacy "
+            "executables.mpas_atmosphere_share path."
+        )
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else (config.root / path).resolve()
+
+
 def wps_executable(config: WorkflowConfig, filename: str) -> Path:
     """Resolve one WPS executable/helper from the public installation contract."""
     root = monan_jedi_root(config)
