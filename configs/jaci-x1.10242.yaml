@@ -69,10 +69,10 @@ pbs:
     - "module use /opt/cray/pe/craype-targets/default/modulefiles"
     - "module use /p/app/modulefiles"
     - "module use /opt/cray/pals/modulefiles"
-    - "pushd /p/projetos/monan_das/$USER/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack >/dev/null"
+    - "pushd /p/projetos/monan_das/joao.gerd/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack >/dev/null"
     - "source configs/sites/tier2/jaci/setup.sh"
     - "popd >/dev/null"
-    - "module use /p/projetos/monan_das/$USER/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack/envs/jaci-mpas-jedi-gcc12-craympich/modules"
+    - "module use /p/projetos/monan_das/joao.gerd/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack/envs/jaci-mpas-jedi-gcc12-craympich/modules"
     - "module load cray-mpich/8.1.31/none/none/jedi-mpas-env/1.0.0"
 
   environment:
