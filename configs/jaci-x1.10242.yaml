@@ -2,66 +2,160 @@
 # MPASWF — JACI PLATFORM CONFIGURATION FOR THE x1.10242 MESH
 # ==============================================================================
 #
-# This file contains only machine/site settings. Campaign logic and product
-# naming live in configs/mpas-x1.10242.yaml and are merged automatically.
+# This file contains machine/site settings only: software installation, storage
+# paths, fixed site assets, execution backend and PBS resources. Campaign logic,
+# scientific/runtime choices and product naming live in configs/mpas-x1.10242.yaml
+# and are merged automatically through workflow.configuration below.
 #
-# The software contract is intentionally simple: MPASWF consumes one validated
-# MONAN-JEDI installation prefix. It does not know where MONAN-JEDI sources,
-# build trees, WPS source trees, or versioned WPS releases are located.
+# Merge rule: MPASWF loads the workflow contract first and deep-merges this file
+# over it. A key declared here therefore overrides the same key in the contract.
+# Lists are replaced as complete values rather than concatenated.
+#
+# String values are expanded with shell-style environment variables such as
+# $USER. Relative paths are resolved from the directory containing THIS platform
+# YAML (not from the shell's current working directory).
+#
+# Software contract: MPASWF consumes one validated MONAN-JEDI installation
+# prefix. It intentionally does not depend on MONAN-JEDI source/build trees, WPS
+# source trees or version-specific staging directories.
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Workflow contract merged with this platform configuration
+# ------------------------------------------------------------------------------
 workflow:
+  # Path to the machine-independent workflow YAML. Relative paths are resolved
+  # from this file's directory before the two mappings are deep-merged.
   configuration: mpas-x1.10242.yaml
 
+# ------------------------------------------------------------------------------
+# Installed software
+# ------------------------------------------------------------------------------
 software:
+  # Public MONAN-JEDI installation prefix. MPASWF derives runtime executables and
+  # data from this tree, notably:
+  #   <root>/bin/mpas_init_atmosphere
+  #   <root>/bin/mpas_atmosphere
+  #   <root>/bin/{ungrib.exe,link_grib.csh}
+  #   <root>/share/wps/Variable_Tables/
+  #   <root>/share/MPAS/core_atmosphere/
   monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
 
+# ------------------------------------------------------------------------------
+# Site storage layout
+# ------------------------------------------------------------------------------
 paths:
+  # Top-level MPASWF working directory. Per-stage WPS/init/forecast directories,
+  # workflow metadata and neutral hand-off products are organized below it.
   work_dir: /p/projetos/monan_das/$USER/work/mpaswf
+
+  # Directory containing the reusable mesh-level static/invariant product.
   static_dir: /p/projetos/monan_das/$USER/work/mpaswf/static
+
+  # Root for local GFS inputs. MPASWF expects one subdirectory per initialization
+  # time: <gfs_dir>/<YYYYMMDDHH>/<gfs.file_template>.
   gfs_dir: /p/projetos/monan_das/$USER/data/gfs
+
+  # Directory containing the namelist/streams templates named in the workflow
+  # contract. This relative path resolves from configs/, therefore it points to
+  # repository-level templates/x1.10242.
   cdct_templates_dir: ../templates/x1.10242
 
-# The validated NMC/x1.10242 workflow reuses the consolidated MPAS-JEDI
-# tutorial invariant instead of recomputing static fields from WPS_GEOG.
+# ------------------------------------------------------------------------------
+# Fixed x1.10242 static/invariant and mesh assets available on JACI
+# ------------------------------------------------------------------------------
+# static.source selects reuse mode: MPASWF validates the precomputed invariant,
+# links it into paths.static_dir using static.product_template and skips static
+# interpolation. static.links is different: those are fixed mesh/decomposition
+# assets linked into the MPAS stage directories as required.
 static:
+  # Validated precomputed invariant used by the reference NMC/x1.10242 workflow.
   source: /p/projetos/monan_das/$USER/external-inputs/mpasjedi_tutorial202509NCAR/MPAS_namelist_stream_physics_files/x1.10242.invariant.nc
+
+  # Directory containing the validated 240-km tutorial namelist/streams and
+  # reference stream lists used by the strict reference forecast staging path.
+  # Despite the historical key name, this path supplies more than physics tables.
   tutorial_physics_files: /p/projetos/monan_das/$USER/external-inputs/mpasjedi_tutorial202509NCAR/MPAS_namelist_stream_physics_files
+
+  # Fixed assets staged as symbolic links into MPAS run directories. Each entry
+  # has a source path on JACI and the filename expected inside the run directory.
   links:
+    # MPAS x1.10242 mesh/grid file.
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/mesh/x1.10242.grid.nc
       target: x1.10242.grid.nc
 
+    # Graph describing mesh connectivity/decomposition input.
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/graph/x1.10242.graph.info
       target: x1.10242.graph.info
 
+    # 128-way graph partition required by the current 128-rank reference runs.
     - source: /p/projetos/monan_das/$USER/projects/mpas_meshes/quasi_uniform/x1.10242_240km/partitions/x1.10242.graph.info.part.128
       target: x1.10242.graph.info.part.128
 
+# ------------------------------------------------------------------------------
+# Execution backend
+# ------------------------------------------------------------------------------
 execution:
+  # Accepted values are "local" and "pbs". The JACI reference workflow renders
+  # and optionally submits PBS scripts for MPAS static/init/forecast stages.
   backend: pbs
 
+# ------------------------------------------------------------------------------
+# PBS scheduler and compute-node runtime
+# ------------------------------------------------------------------------------
 pbs:
+  # Default queue used by stages without a more specific queue override.
   queue: pesqmini
+
+  # Forecast-specific queue. If omitted, forecasts fall back to pbs.queue.
   queue_forecast: pesqmidi
+
+  # PBS select resource: number of chunks/nodes requested per MPAS job.
   select: 1
+
+  # CPUs requested per selected chunk/node.
   ncpus: 128
+
+  # MPI processes requested per selected chunk/node. This value is also passed
+  # to {mpi_ranks} in pbs.launcher.
   mpiprocs: 128
+
+  # PBS placement policy. "excl" requests exclusive placement on the node.
   place: excl
 
+  # Stage walltimes in PBS HH:MM:SS form.
   walltime_static: "00:20:00"
   walltime_init: "00:30:00"
+
+  # Generic forecast walltime used as fallback when a lead-specific value below
+  # is not configured.
   walltime_forecast: "03:00:00"
+
+  # Lead-specific forecast walltimes. MPASWF resolves the key dynamically as
+  # pbs.walltime_forecast_f{lead:03d} and falls back to walltime_forecast.
   walltime_forecast_f024: "01:00:00"
   walltime_forecast_f048: "02:00:00"
 
+  # Queue and walltime used by the real one-rank scheduler smoke test. The smoke
+  # job runs /bin/hostname through the configured launcher and checks a sentinel.
   queue_smoke: pesqmini
   walltime_smoke: "00:02:00"
 
+  # MPI launcher argv. {mpi_ranks} is replaced by pbs.mpiprocs for production
+  # jobs (and by 1 for pbs-smoke). The MPAS executable is appended automatically.
   launcher: ["mpiexec", "-n", "{mpi_ranks}"]
+
+  # Scheduler command argv. MPASWF appends the PBS script path to qsub_command
+  # and the job id to qstat_command.
   qsub_command: ["qsub"]
   qstat_command: ["qstat", "-f"]
+
+  # Seconds between qstat checks while waiting. Values below 1 are clamped to 1.
   poll_seconds: 30
 
+  # Literal shell commands executed on the PBS compute node before MPI starts.
+  # Use this block for site/module hierarchy initialization that must be repeated
+  # inside every submitted job. A legacy pbs.modules list is also supported.
   bootstrap:
     - "module --force purge 2>/dev/null || module purge"
     - "module use /opt/cray/pe/modulefiles"
@@ -75,7 +169,14 @@ pbs:
     - "module use /p/projetos/monan_das/joao.gerd/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack/envs/jaci-mpas-jedi-gcc12-craympich/modules"
     - "module load cray-mpich/8.1.31/none/none/jedi-mpas-env/1.0.0"
 
+  # Environment variables exported in every PBS job after bootstrap/modules and
+  # before the MPI launcher is executed.
   environment:
+    # One OpenMP thread per MPI rank: the current reference run is pure MPI.
     OMP_NUM_THREADS: "1"
+
+    # JACI/Slingshot libfabric receive matching mode used by the validated stack.
     FI_CXI_RX_MATCH_MODE: "hybrid"
+
+    # Default endianness expected by Fortran unformatted runtime I/O in this case.
     F_UFMTENDIAN: "big"

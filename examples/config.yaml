@@ -2,106 +2,251 @@
 # MPASWF — EXEMPLO AUTOCONTIDO (FORMATO LEGADO/COMPATÍVEL)
 # ==============================================================================
 #
-# Este arquivo mantém TODOS os blocos em um único YAML. Ele continua sendo
-# totalmente suportado para preservar scripts existentes e integrações externas.
+# Este arquivo mantém TODOS os blocos de configuração em um único YAML. Ele é
+# suportado para preservar scripts existentes e integrações externas, mas novas
+# campanhas devem preferir a separação entre:
 #
-# Para novas campanhas, prefira a organização documentada em `configs/`:
+#   configs/jaci-x1.10242.yaml   -> plataforma, software, caminhos e PBS
+#   configs/mpas-x1.10242.yaml   -> campanha e contrato do workflow
 #
-#   configs/jaci-x1.10242.yaml   -> plataforma/PBS/caminhos
-#   configs/mpas-x1.10242.yaml   -> campanha/contrato do workflow
+# A CLI é a mesma nos dois formatos: muda apenas o caminho passado a --config.
 #
-# A forma de executar é idêntica nos dois casos: apenas o caminho passado a
-# --config muda.
+# IMPORTANTE SOBRE CAMINHOS:
+# - caminhos relativos são resolvidos a partir do diretório deste YAML;
+# - variáveis de ambiente escritas como $USER são expandidas automaticamente;
+# - o texto USER usado nos caminhos abaixo é apenas um marcador didático deste
+#   exemplo e deve ser substituído pelo usuário/local correto.
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Diretórios principais do experimento
+# ------------------------------------------------------------------------------
 paths:
+  # Diretório raiz de trabalho do MPASWF. Abaixo dele são criados diretórios
+  # separados para WPS, inicialização, previsões, metadados e produtos.
   work_dir: /p/projetos/monan_das/USER/work/mpaswf
-  # Output directory created by the one-time static interpolation stage.
+
+  # Diretório do produto estático/invariante reutilizado pelas inicializações e
+  # previsões. Quando gerado pelo workflow, o estágio static escreve aqui.
   static_dir: /p/projetos/monan_das/USER/work/mpaswf/static
+
+  # Raiz dos arquivos GFS locais. Para cada inicialização, o MPASWF procura em
+  # <gfs_dir>/<YYYYMMDDHH>/<nome definido em gfs.file_template>.
   gfs_dir: /p/projetos/monan_das/USER/data/gfs
+
+  # Diretório que contém os templates de namelist/streams citados em templates.*.
   cdct_templates_dir: /p/projetos/monan_das/USER/cdct/templates
 
+# ------------------------------------------------------------------------------
+# Executáveis — contrato legado
+# ------------------------------------------------------------------------------
+# Este bloco é usado somente quando software.monan_jedi_root não está definido.
+# No formato atual recomendado, os executáveis e dados de runtime são derivados
+# de um único prefixo de instalação MONAN-JEDI.
 executables:
+  # Diretório legado a partir do qual o MPASWF resolve link_grib.csh/ungrib.exe e
+  # mantém o contexto {wps_dir} usado no caminho legado da Vtable.
   wps_dir: /p/projetos/monan_das/USER/apps/WPS
+
+  # Executável do MPAS init_atmosphere usado nos estágios static/init.
   mpas_init: /p/projetos/monan_das/USER/apps/mpas_init_atmosphere
+
+  # Executável do MPAS atmosphere usado nas previsões.
   mpas_atmosphere: /p/projetos/monan_das/USER/apps/mpas_atmosphere
 
+# ------------------------------------------------------------------------------
+# Campanha no tempo
+# ------------------------------------------------------------------------------
+# A campanha é definida em termos de TEMPOS VÁLIDOS da previsão. Os limites são
+# inclusivos. Para cada tempo válido, o MPASWF calcula automaticamente a hora de
+# inicialização como valid_time - lead_hours.
 campaign:
+  # Primeiro tempo válido produzido, em ISO-8601 com timezone.
   start_valid_time: "2026-06-22T00:00:00Z"
+
+  # Último tempo válido produzido; também é incluído na campanha.
   end_valid_time: "2026-06-25T18:00:00Z"
+
+  # Intervalo, em horas, entre tempos válidos consecutivos. Deve ser positivo.
   interval_hours: 6
+
+  # Prazos de previsão em horas. A implementação atual de pares NMC exige
+  # exatamente f024 e f048.
   leads_hours: [24, 48]
 
-# The first version intentionally assumes one analysis GRIB file per
-# initialization. Expand this list later only when the CD-CT case requires it.
+# ------------------------------------------------------------------------------
+# Entrada GFS
+# ------------------------------------------------------------------------------
+# A implementação atual usa um arquivo de análise GFS f000 por inicialização.
+# Se o arquivo local não existir ou for inválido, url_template pode ser usado
+# para download automático.
 gfs:
+  # Nome local do arquivo GFS. {init_hour} é a hora UTC da inicialização.
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
-  # Leave url_template empty when files already exist in gfs_dir.
+
+  # URL opcional de download. null significa operação somente com arquivos já
+  # presentes em paths.gfs_dir. Quando usado, o template pode referenciar
+  # placeholders de tempo e {gfs_file}.
   # url_template: "https://example.invalid/gfs.{init_yyyymmddhh}/{gfs_file}"
   url_template: null
+
+  # Tamanho mínimo, em bytes, para aceitar um arquivo GFS local/baixado.
   minimum_size_bytes: 1048576
 
+# ------------------------------------------------------------------------------
+# WPS / ungrib
+# ------------------------------------------------------------------------------
 wps:
-  # The output must match the exact WPS/CD-CT initialization contract.
+  # Nome exato do produto intermediário esperado após o ungrib para uma
+  # inicialização. Deve ser compatível com os prefixos configurados no MPAS init.
   output_template: "FILE:{init_date_yyyy_mm_dd_hh}"
+
+  # Caminho legado da Vtable GFS. {wps_dir} recebe executables.wps_dir.
   vtable: "{wps_dir}/ungrib/Variable_Tables/Vtable.GFS"
+
+  # Nome do namelist WPS renderizado dentro do diretório de cada inicialização.
   namelist_target: namelist.wps
+
+  # Comando argv usado para criar os links GRIB. {gfs_file} é o caminho do
+  # arquivo GFS resolvido para aquela inicialização.
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
+
+  # Comando argv usado para executar o ungrib.
   ungrib_command: ["./ungrib.exe"]
 
+# ------------------------------------------------------------------------------
+# Nomes dos produtos MPAS
+# ------------------------------------------------------------------------------
+# Esses templates determinam os nomes que o MPASWF espera localizar e validar
+# nos diretórios de execução. Eles precisam permanecer coerentes com streams e
+# namelists usados pela configuração do MPAS.
 products:
-  # These names must be aligned with the CD-CT streams files.
+  # Estado inicial produzido por mpas_init_atmosphere.
   init_state_template: "x1.10242.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc"
+
+  # Restart da previsão correspondente ao tempo válido.
   restart_template: "restart.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
+
+  # Estado MPAS/JEDI de assimilação correspondente ao tempo válido.
   da_state_template: "mpasout.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
 
+# ------------------------------------------------------------------------------
+# Templates de configuração executável
+# ------------------------------------------------------------------------------
+# Todos os nomes são resolvidos dentro de paths.cdct_templates_dir.
 templates:
+  # Namelist do WPS/ungrib.
   wps: "namelist.wps.in"
+
+  # Namelist e streams usados para gerar o produto estático quando não há
+  # static.source configurado.
   static_namelist: "namelist.init_atmosphere.static.in"
   static_streams: "streams.init_atmosphere.static.in"
+
+  # Namelist e streams da inicialização meteorológica do MPAS.
   init_namelist: "namelist.init_atmosphere.in"
   init_streams: "streams.init_atmosphere.in"
+
+  # Namelist e streams da previsão genérica do MPAS.
   forecast_namelist: "namelist.atmosphere.in"
   forecast_streams: "streams.atmosphere.in"
 
-# This stage generates the mesh-level static product once, then reuses it.
-# ``links`` contains fixed mesh and support assets, not the generated product.
+# ------------------------------------------------------------------------------
+# Produto estático/invariante e arquivos fixos compartilhados
+# ------------------------------------------------------------------------------
+# Sem static.source, este exemplo gera o produto estático uma vez e o reutiliza.
+# static.links NÃO representa esse produto gerado: a lista contém arquivos fixos
+# de malha/decomposição/suporte que são ligados aos diretórios dos estágios MPAS.
 static:
+  # Data/hora de referência usada na renderização do caso de interpolação
+  # estática e registrada nos metadados do estágio.
   reference_time: "2010-10-23T00:00:00Z"
+
+  # Nome do produto estático gerado/reutilizado em paths.static_dir.
   product_template: "x1.10242.static.nc"
+
+  # Arquivos fixos copiados logicamente por links simbólicos para os runs MPAS.
   links:
+    # Arquivo da malha MPAS.
     - source: /p/projetos/monan_das/USER/mesh/x1.10242.grid.nc
       target: "x1.10242.grid.nc"
+
+    # Partição da malha para 128 processos MPI.
     - source: /p/projetos/monan_das/USER/mesh/x1.10242.graph.info.part.128
       target: "x1.10242.graph.info.part.128"
 
+# ------------------------------------------------------------------------------
+# Forma de execução
+# ------------------------------------------------------------------------------
 execution:
-  backend: pbs  # local or pbs
+  # "local" executa diretamente no nó atual; "pbs" renderiza/submete scripts PBS
+  # para os estágios MPAS. WPS continua sendo executado diretamente pelo MPASWF.
+  backend: pbs
 
+# ------------------------------------------------------------------------------
+# Recursos e comandos PBS
+# ------------------------------------------------------------------------------
+# Este bloco é obrigatório quando execution.backend = pbs.
 pbs:
+  # Fila padrão para os jobs MPAS. Filas específicas por estágio podem substituir
+  # essa chave em configurações mais completas.
   queue: pesqmini
-  # The scheduler smoke is intentionally tiny: one CPU / one MPI rank, 2 min.
-  # queue_smoke can differ from the production queue when desired.
+
+  # Recursos do teste real de conectividade com o scheduler. O smoke usa sempre
+  # 1 CPU e 1 processo MPI; estas opções controlam apenas fila e walltime.
   queue_smoke: pesqmini
   walltime_smoke: "00:02:00"
+
+  # Número de chunks/nós solicitado no select do PBS.
   select: 1
+
+  # CPUs por chunk/nó.
   ncpus: 128
+
+  # Processos MPI por chunk/nó. O valor também alimenta {mpi_ranks} no launcher.
   mpiprocs: 128
+
+  # Limites de tempo dos estágios MPAS no formato HH:MM:SS.
   walltime_static: "00:20:00"
   walltime_init: "00:30:00"
   walltime_forecast: "03:00:00"
+
+  # Launcher MPI em formato argv. O executável MPAS é anexado automaticamente.
   launcher: ["mpiexec", "-n", "{mpi_ranks}"]
+
+  # Comandos do scheduler. O caminho do script é anexado ao qsub; o job id é
+  # anexado ao qstat durante o acompanhamento.
   qsub_command: ["qsub"]
   qstat_command: ["qstat", "-f"]
+
+  # Intervalo, em segundos, entre consultas ao scheduler durante o wait.
   poll_seconds: 30
+
+  # Lista legada de comandos de módulo executados no nó de computação antes do
+  # MPI. Configurações atuais podem usar pbs.bootstrap para preparação mais ampla.
   modules:
     - "module load PrgEnv-gnu"
     - "module load cray-mpich"
+
+  # Variáveis exportadas dentro do script PBS antes do launcher MPI.
   environment:
+    # Uma thread OpenMP por rank MPI.
     OMP_NUM_THREADS: "1"
+
+    # Modo de matching libfabric/CXI usado nesta plataforma de exemplo.
     FI_CXI_RX_MATCH_MODE: "hybrid"
+
+    # Endianness padrão para I/O Fortran unformatted deste caso.
     F_UFMTENDIAN: "big"
 
+# ------------------------------------------------------------------------------
+# Política mínima de validação dos produtos
+# ------------------------------------------------------------------------------
 validation:
+  # true adiciona verificação de legibilidade NetCDF aos testes de existência e
+  # tamanho. false mantém apenas as validações leves configuradas pelo workflow.
   require_netcdf: false
+
+  # Tamanho mínimo, em bytes, para aceitar produtos WPS/MPAS gerados ou reusados.
+  # O GFS possui seu próprio limite em gfs.minimum_size_bytes.
   minimum_size_bytes: 1024
