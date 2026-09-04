@@ -79,6 +79,31 @@ workflow:
 MPASWF loads the workflow contract first and deep-merges the platform document
 over it. Nested mappings are merged recursively and lists are replaced atomically.
 
+## Inline YAML documentation convention
+
+Configuration YAMLs are also user-facing documentation. A user should be able to
+open the file they are about to edit and understand the operational meaning of a
+block or key without first reverse-engineering the Python implementation.
+
+New or modified configuration files should therefore document settings inline:
+
+- introduce each top-level block with its purpose and its relationship to the
+  surrounding workflow;
+- explain non-obvious keys next to the value being configured;
+- state units explicitly for durations, intervals, sizes and resource counts;
+- state accepted values, current implementation restrictions and fallback
+  behavior when those affect how a setting is interpreted;
+- explain path-resolution rules and whether a path names an input, output,
+  installation prefix or directory searched by MPASWF;
+- explain template placeholders when a filename, URL or command is rendered;
+- distinguish settings that look related but have different roles, such as
+  `static.source` and `static.links`;
+- keep comments synchronized with the code whenever configuration semantics
+  change.
+
+Comments should explain semantics rather than repeat the key name. They must not
+change the YAML data model or hide required configuration behind documentation.
+
 ## Environment variables
 
 Environment variables are expanded recursively. The standard JACI configuration
