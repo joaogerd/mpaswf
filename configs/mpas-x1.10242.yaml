@@ -2,60 +2,167 @@
 # MPASWF — WORKFLOW CONTRACT FOR THE x1.10242 MESH
 # ==============================================================================
 #
-# This file describes WHAT MPASWF produces. Machine paths and the MONAN-JEDI
-# installation prefix belong in configs/jaci-x1.10242.yaml.
+# This file describes WHAT MPASWF produces for the x1.10242 NMC campaign.
+# It contains campaign/scientific settings, product naming, template selection,
+# runtime controls and validation policy. Machine paths, software installation
+# and PBS resources belong in configs/jaci-x1.10242.yaml.
+#
+# The platform YAML points to this file through workflow.configuration. MPASWF
+# loads this contract first and deep-merges the platform YAML over it. Therefore
+# a platform setting with the same key overrides the value declared here.
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Campaign geometry in time
+# ------------------------------------------------------------------------------
+# The campaign is defined in terms of forecast VALID times, not initialization
+# times. Both bounds are inclusive and timestamps must contain a timezone; the
+# workflow normalizes them to UTC. For each valid time, MPASWF derives the
+# initialization time as valid_time - lead_hours.
 campaign:
+  # First valid time to produce (inclusive), in ISO-8601 UTC form.
   start_valid_time: "2026-06-22T00:00:00Z"
+
+  # Last valid time to produce (inclusive).
   end_valid_time: "2026-06-25T00:00:00Z"
+
+  # Spacing, in hours, between consecutive valid times. Must be positive.
   interval_hours: 24
+
+  # Forecast lead times, in hours, paired at each valid time. The current MPASWF
+  # product-pair implementation requires exactly f024 and f048.
   leads_hours: [24, 48]
 
+# ------------------------------------------------------------------------------
+# GFS input acquisition
+# ------------------------------------------------------------------------------
+# One GFS analysis file (f000) is expected for every unique MPAS initialization
+# time needed by the campaign. Template placeholders are rendered from that
+# initialization time. A valid local file under paths.gfs_dir is reused; the URL
+# is used only when the local file is absent/invalid.
 gfs:
+  # Local GFS filename inside <gfs_dir>/<YYYYMMDDHH>/.
+  # Available placeholders include {init_hour}, {init_yyyymmdd},
+  # {init_yyyymmddhh}, and the other standard MPASWF time placeholders.
   file_template: "gfs.t{init_hour}z.pgrb2.0p25.f000"
+
+  # Remote source used to download a missing GFS file. {gfs_file} is the name
+  # produced by file_template. Set this key to null in offline/local-only cases.
   url_template: "https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{init_yyyymmdd}/{init_hour}/atmos/{gfs_file}"
+
+  # Minimum acceptable size for a local or downloaded GFS file, in bytes.
+  # This check is independent of validation.minimum_size_bytes.
   minimum_size_bytes: 1048576
 
+# ------------------------------------------------------------------------------
+# WPS / ungrib stage
+# ------------------------------------------------------------------------------
+# MPASWF stages link_grib.csh, ungrib.exe and the requested Vtable into a
+# per-initialization WPS directory, renders namelist.wps and then runs the two
+# commands below without shell-string evaluation.
 wps:
+  # Filename resolved under <software.monan_jedi_root>/share/wps/Variable_Tables.
+  # This must be a filename, not an arbitrary path, when the canonical software
+  # installation contract is used.
   vtable_name: Vtable.GFS
+
+  # Exact WPS intermediate filename expected after ungrib for one init time.
+  # This must remain consistent with config_met_prefix/config_sfc_prefix in the
+  # MPAS init template used by the x1.10242 reference case.
   output_template: "GFS:{init_date_yyyy_mm_dd_hh}"
+
+  # Name of the rendered WPS namelist inside each WPS run directory.
   namelist_target: namelist.wps
+
+  # argv used for the GRIB-link stage. {gfs_file} is the resolved source path.
   link_grib_command: ["./link_grib.csh", "{gfs_file}"]
+
+  # argv used to decode the linked GRIB input.
   ungrib_command: ["./ungrib.exe"]
 
+# ------------------------------------------------------------------------------
+# MPAS product filenames
+# ------------------------------------------------------------------------------
+# These templates define the neutral product names MPASWF expects to create and
+# validate inside stage-specific run directories. Time placeholders refer to the
+# forecast initialization and valid times associated with each product.
 products:
+  # State produced by mpas_init_atmosphere for one initialization time.
   init_state_template: "x1.10242.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc"
+
+  # MPAS restart written at the forecast valid time.
   restart_template: "restart.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
+
+  # MPAS/JEDI DA-state hand-off written at the forecast valid time.
   da_state_template: "mpasout.{valid_date_yyyy_mm_dd_hh_mm_ss}.nc"
 
+# ------------------------------------------------------------------------------
+# Input template selection
+# ------------------------------------------------------------------------------
+# All filenames below are resolved relative to paths.cdct_templates_dir.
+# The static templates are used only when static.source is not configured.
+# The generic forecast templates are retained for self-contained/generic cases;
+# the validated JACI reference forecast instead stages the tutorial 240-km
+# namelist/streams and patches only explicitly controlled run-time settings.
 templates:
+  # WPS namelist rendered before ungrib.
   wps: "namelist.wps.in"
+
+  # MPAS init_atmosphere templates for generating a static product from scratch.
   static_namelist: "namelist.init_atmosphere.static.in"
   static_streams: "streams.init_atmosphere.static.in"
+
+  # MPAS init_atmosphere templates for meteorological initialization.
   init_namelist: "namelist.init_atmosphere.in"
   init_streams: "streams.init_atmosphere.in"
-  # Retained for generic/self-contained configurations. The JACI reference
-  # forecast uses the validated 240-km tutorial namelist/streams and patches only
-  # the explicit run-time settings before PBS submission.
+
+  # Generic forecast templates. They are not used by the JACI reference path
+  # when validation.require_reference_preflight is true.
   forecast_namelist: "namelist.atmosphere.in"
   forecast_streams: "streams.atmosphere.in"
 
+# ------------------------------------------------------------------------------
+# Static/invariant product contract
+# ------------------------------------------------------------------------------
 static:
+  # Reference timestamp used to render a generated static interpolation case.
+  # It is also recorded in static-stage metadata. In the JACI reference setup,
+  # static.source is supplied by the platform YAML, so no interpolation is run.
   reference_time: "2010-10-23T00:00:00Z"
+
+  # Filename MPASWF uses for the reusable mesh-level static/invariant product in
+  # paths.static_dir. An external static.source is linked to this target name.
   product_template: "x1.10242.static.nc"
 
+# ------------------------------------------------------------------------------
+# Reference forecast run-time controls
+# ------------------------------------------------------------------------------
+# These settings are consumed by the validated x1.10242 reference-forecast path
+# when validation.require_reference_preflight is enabled.
 runtime:
-  # Values used by the previously validated x1.10242 NMC forecast workflow.
+  # MPAS atmosphere integration time step, in seconds (config_dt).
   config_dt: 60
+
+  # MPAS output interval for the DA-state and restart streams (HH:MM:SS).
   output_interval: "24:00:00"
 
+# ------------------------------------------------------------------------------
+# Output and run validation policy
+# ------------------------------------------------------------------------------
 validation:
+  # If true, validated products must be readable as NetCDF in addition to the
+  # size/existence checks. false keeps validation lightweight for this workflow.
   require_netcdf: false
+
+  # Minimum acceptable size, in bytes, for generated/reused WPS and MPAS
+  # products unless a stage has its own dedicated threshold.
   minimum_size_bytes: 1024
-  # The JACI reference case must fail before PBS if invariant, initialized state,
-  # graph/partition, physics tables, stream lists or rendered settings are wrong.
+
+  # Enable strict pre-PBS checks for the validated x1.10242 JACI reference case.
+  # The init/forecast stages verify required invariant, mesh, partition, physics,
+  # stream-list and rendered namelist/streams settings before submission.
   require_reference_preflight: true
-  # Do not accept merely-created NetCDF products: MPAS init and forecast logs
-  # must both report zero critical and ordinary error messages.
+
+  # Require MPAS init and atmosphere logs to explicitly report zero critical and
+  # zero ordinary error messages before a run is accepted as successfully valid.
   require_mpas_clean_log: true
