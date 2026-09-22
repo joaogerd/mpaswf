@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import os
 from pathlib import Path
+import shlex
 from typing import Iterable
 
 from .config import WorkflowConfig, render, resolve_path, string, value
@@ -111,6 +112,85 @@ def _existing_path(name: str, path: Path) -> ResourceCheck:
     if not os.access(path, os.R_OK):
         return ResourceCheck(name, path, "existing path", "NOT_READABLE", False)
     return ResourceCheck(name, path, "existing path", "OK", True)
+
+
+def _resolve_bootstrap_path(raw: str, base: Path) -> tuple[Path | None, str | None]:
+    expanded = os.path.expandvars(raw)
+    if "$" in expanded:
+        return None, f"Unresolved environment variable in bootstrap path: {raw}"
+    path = Path(expanded).expanduser()
+    return (path if path.is_absolute() else (base / path).resolve()), None
+
+
+def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
+    commands = value(config, "pbs.bootstrap", required=False, default=[])
+    if not isinstance(commands, list):
+        return
+
+    current_dir = config.root
+    directory_stack: list[Path] = []
+
+    for index, command in enumerate(commands):
+        if not isinstance(command, str) or not command.strip():
+            continue
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            continue
+        if not tokens:
+            continue
+
+        if tokens[0] in {"pushd", "cd"} and len(tokens) >= 2:
+            path, error = _resolve_bootstrap_path(tokens[1], current_dir)
+            if error is not None or path is None:
+                yield ResourceCheck(
+                    f"pbs.bootstrap[{index}]",
+                    Path(tokens[1]),
+                    "bootstrap directory",
+                    "UNRESOLVED_ENV",
+                    False,
+                    error or "",
+                )
+                continue
+            yield _required_dir(f"pbs.bootstrap[{index}].directory", path)
+            if tokens[0] == "pushd":
+                directory_stack.append(current_dir)
+            current_dir = path
+            continue
+
+        if tokens[0] == "popd":
+            if directory_stack:
+                current_dir = directory_stack.pop()
+            continue
+
+        if tokens[0] == "source" and len(tokens) >= 2:
+            path, error = _resolve_bootstrap_path(tokens[1], current_dir)
+            if error is not None or path is None:
+                yield ResourceCheck(
+                    f"pbs.bootstrap[{index}]",
+                    Path(tokens[1]),
+                    "bootstrap source file",
+                    "UNRESOLVED_ENV",
+                    False,
+                    error or "",
+                )
+                continue
+            yield _required_file(f"pbs.bootstrap[{index}].source", path)
+            continue
+
+        if tokens[0:2] == ["module", "use"] and len(tokens) >= 3:
+            path, error = _resolve_bootstrap_path(tokens[2], current_dir)
+            if error is not None or path is None:
+                yield ResourceCheck(
+                    f"pbs.bootstrap[{index}]",
+                    Path(tokens[2]),
+                    "module directory",
+                    "UNRESOLVED_ENV",
+                    False,
+                    error or "",
+                )
+                continue
+            yield _required_dir(f"pbs.bootstrap[{index}].module_use", path)
 
 
 def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceCheck]:
@@ -224,6 +304,7 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
 
     checks.extend(_template_checks(config, layout))
     checks.extend(_static_checks(config, layout))
+    checks.extend(_bootstrap_checks(config))
     return checks
 
 
