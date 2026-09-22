@@ -47,6 +47,10 @@ def _config(tmp_path: Path) -> WorkflowConfig:
         _touch(path)
     tutorial.mkdir(parents=True)
 
+    stack = tmp_path / "spack-stack"
+    _touch(stack / "configs" / "sites" / "tier2" / "jaci" / "setup.sh")
+    (stack / "envs" / "test" / "modules").mkdir(parents=True)
+
     return WorkflowConfig(
         path=tmp_path / "configs" / "jaci.yaml",
         data={
@@ -70,6 +74,14 @@ def _config(tmp_path: Path) -> WorkflowConfig:
                     {"source": str(partition), "target": "x1.10242.graph.info.part.128"},
                 ],
             },
+            "pbs": {
+                "bootstrap": [
+                    f"pushd {stack} >/dev/null",
+                    "source configs/sites/tier2/jaci/setup.sh",
+                    "popd >/dev/null",
+                    f"module use {stack / 'envs' / 'test' / 'modules'}",
+                ]
+            },
         },
     )
 
@@ -85,6 +97,9 @@ def test_preflight_accepts_existing_inputs_and_creatable_work_dirs(tmp_path: Pat
     assert checks["static.links[2].source"]["status"] == "OK"
     assert checks["paths.work_dir"]["status"] == "CREATABLE"
     assert checks["paths.gfs_dir"]["status"] == "CREATABLE"
+    assert checks["pbs.bootstrap[0].directory"]["status"] == "OK"
+    assert checks["pbs.bootstrap[1].source"]["status"] == "OK"
+    assert checks["pbs.bootstrap[3].module_use"]["status"] == "OK"
 
 
 def test_preflight_reports_missing_required_static_asset(tmp_path: Path) -> None:
@@ -98,3 +113,15 @@ def test_preflight_reports_missing_required_static_asset(tmp_path: Path) -> None
     checks = {item["name"]: item for item in report["checks"]}
     assert checks["static.links[1].source"]["status"] == "MISSING"
     assert checks["static.links[1].source"]["path"] == str(missing)
+
+
+def test_preflight_reports_missing_bootstrap_source(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    stack = Path(config.data["pbs"]["bootstrap"][0].split()[1])
+    (stack / "configs" / "sites" / "tier2" / "jaci" / "setup.sh").unlink()
+
+    report = config_preflight_report(config)
+
+    assert report["valid"] is False
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["pbs.bootstrap[1].source"]["status"] == "MISSING"
