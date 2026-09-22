@@ -213,6 +213,17 @@ Supported values are `local` and `pbs`.
 
 ## `pbs`
 
+For the maintained JACI configuration, export the spack-stack checkout before
+loading or running the configuration:
+
+```bash
+export STACK_ROOT=/path/to/spack-stack
+```
+
+The JACI `pbs.bootstrap` commands reference `${STACK_ROOT}`. This keeps the
+selected dependency stack outside the versioned YAML and ensures login-node and
+compute-node instructions can use the same checkout.
+
 When the backend is PBS, configure queue/resources/launcher, compute-node runtime
 bootstrap and stage walltimes. The x1.10242 JACI case uses a partition matching
 `mpiprocs: 128`.
@@ -271,7 +282,9 @@ These checks prevent reuse of empty or obviously incomplete products.
 ## Environment expansion
 
 Environment variables in YAML strings are expanded before validation. For JACI,
-`$USER` is therefore sufficient for user-specific roots.
+`$USER` supplies user-specific storage roots and `STACK_ROOT` selects the
+spack-stack checkout used by PBS bootstrap commands. Export `STACK_ROOT` before
+running `pbs-smoke`, `init`, or `forecast`.
 
 ## Path ownership rule
 
