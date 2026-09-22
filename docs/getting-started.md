@@ -147,7 +147,9 @@ Required existing resources include:
 - `static.source` when a precomputed invariant is configured;
 - `static.tutorial_physics_files` when configured;
 - every `static.links[*].source` entry, including mesh, graph and partition;
-- the configured template directory and every template named by `templates.*`.
+- the configured template directory and every template named by `templates.*`;
+- explicit filesystem paths used by `pbs.bootstrap` in `pushd`/`cd`,
+  `source`, and `module use` commands.
 
 For `paths.work_dir`, `paths.static_dir` and `paths.gfs_dir`, an absent
 directory is reported as `CREATABLE` when its nearest existing parent is
