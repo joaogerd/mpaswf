@@ -178,6 +178,12 @@ templates:
 
 The filenames are resolved below `paths.cdct_templates_dir`.
 
+Not every declared template is used by every configuration. When
+`static.source` is configured, `templates.static_*` are bypassed. When
+`validation.require_reference_preflight: true`, the maintained x1.10242
+forecast stages the validated tutorial `namelist.atmosphere_240km` and
+`streams.atmosphere_240km` instead of `templates.forecast_*`.
+
 ## `static`
 
 The workflow contract declares the generated static product and reference time:
@@ -275,7 +281,10 @@ The command resolves environment variables such as `$USER` and validates:
 - `software.monan_jedi_root`;
 - MPAS/WPS executables derived from that installation;
 - the WPS Vtable and MPAS atmosphere share directory;
-- `paths.cdct_templates_dir` and every template named by `templates.*`;
+- `paths.cdct_templates_dir` and only the templates consumed by the active
+  configuration path;
+- for the strict reference forecast, the exact tutorial namelist/streams,
+  required `stream_list.*` files, and installed MPAS physics files;
 - `static.source` when configured;
 - `static.tutorial_physics_files` when configured;
 - every `static.links[*].source` path, including mesh, graph and partition;
