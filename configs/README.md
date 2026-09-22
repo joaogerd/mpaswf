@@ -52,6 +52,16 @@ The same platform file also owns:
 - local/PBS backend selection;
 - queue, CPU/MPI resources, walltimes and runtime environment.
 
+The JACI bootstrap intentionally does not contain a personal spack-stack path.
+Select the checkout at run time:
+
+```bash
+export STACK_ROOT=/path/to/spack-stack
+```
+
+The `${STACK_ROOT}` references in `pbs.bootstrap` are expanded before PBS
+scripts are rendered.
+
 ## Workflow/campaign file
 
 `mpas-x1.10242.yaml` answers **what is produced**:
