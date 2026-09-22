@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .config import load_config
 from .pbs import run_pbs_smoke
+from .preflight import config_preflight_report
 from .workflow import run_forecast, run_init, run_manifest, run_prepare
 from .ui import status
 
@@ -25,6 +27,17 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--submit", action="store_true", help="Submit PBS jobs for init or forecast phases.")
     run.add_argument("--wait", action="store_true", help="Wait for submitted PBS jobs and validate outputs.")
     run.add_argument("--force", action="store_true", help="Ignore reusable valid outputs and rerun the selected phase.")
+
+    check = commands.add_parser(
+        "check-config",
+        help="Resolve the configuration and validate required filesystem resources.",
+    )
+    check.add_argument("--config", required=True, type=Path)
+    check.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the complete preflight report as JSON.",
+    )
 
     smoke = commands.add_parser(
         "pbs-smoke",
@@ -48,6 +61,24 @@ def main(argv: list[str] | None = None) -> int:
         Process status code.
     """
     args = build_parser().parse_args(argv)
+
+    if args.command == "check-config":
+        status(f"MPASWF config preflight: loading {args.config}.")
+        config = load_config(args.config)
+        report = config_preflight_report(config)
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            for check in report["checks"]:
+                marker = "OK" if check["ok"] else "FAIL"
+                detail = f" — {check['detail']}" if check["detail"] else ""
+                print(
+                    f"[{marker:4}] {check['name']}: {check['status']} "
+                    f"({check['expectation']})\n"
+                    f"       {check['path']}{detail}"
+                )
+            print(f"\nConfiguration resources valid: {report['valid']}")
+        return 0 if report["valid"] else 1
 
     if args.command == "pbs-smoke":
         status(f"MPASWF PBS smoke: loading {args.config}.")

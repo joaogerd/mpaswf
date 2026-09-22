@@ -111,10 +111,14 @@ MPAS-BMatrix.
 
 ## First-run sequence on JACI
 
-After installing MONAN-JEDI and checking the mesh/templates/GFS paths:
+After installing MONAN-JEDI:
 
 ```bash
 CONFIG=configs/jaci-x1.10242.yaml
+
+# Resolve $USER and validate software, templates, invariant, mesh/partition,
+# and writable campaign/data directories before submitting anything.
+mpaswf check-config --config "$CONFIG"
 
 # Verify scheduler + MPI + compute-node filesystem access.
 mpaswf pbs-smoke --config "$CONFIG"
