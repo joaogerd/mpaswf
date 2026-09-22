@@ -130,6 +130,42 @@ and mesh/partition paths under the user's MPAS mesh repository.
 Create only the writable campaign/data directories yourself. The MONAN-JEDI
 installation must be produced by the MONAN-JEDI build/install workflow.
 
+Before running PBS or downloading GFS data, run the side-effect-free preflight:
+
+```bash
+mpaswf check-config --config "$CONFIG"
+```
+
+The command expands values such as `$USER` and checks the resolved resources.
+It distinguishes resources that **must already exist** from writable directories
+that MPASWF may create later.
+
+Required existing resources include:
+
+- the MONAN-JEDI installation root and its MPAS/WPS executables;
+- the WPS Vtable and MPAS atmosphere share directory;
+- `static.source` when a precomputed invariant is configured;
+- `static.tutorial_physics_files` when configured;
+- every `static.links[*].source` entry, including mesh, graph and partition;
+- the configured template directory and every template named by `templates.*`.
+
+For `paths.work_dir`, `paths.static_dir` and `paths.gfs_dir`, an absent
+directory is reported as `CREATABLE` when its nearest existing parent is
+writable. Missing mandatory inputs are reported as `FAIL` and the command
+returns a non-zero status.
+
+For machine-readable diagnostics:
+
+```bash
+mpaswf check-config --config "$CONFIG" --json
+```
+
+Do not continue to `pbs-smoke` until the preflight reports:
+
+```text
+Configuration resources valid: True
+```
+
 ## 6. Validated templates remain separate
 
 MPASWF requires the validated case templates named by `templates.*`. The standard
