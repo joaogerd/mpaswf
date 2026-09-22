@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mpaswf.config import WorkflowConfig
+from mpaswf.forecast import REFERENCE_PHYSICS_FILES, REFERENCE_STREAM_LISTS
 from mpaswf.preflight import config_preflight_report
 
 
@@ -23,7 +24,10 @@ def _config(tmp_path: Path) -> WorkflowConfig:
     ):
         _touch(install / "bin" / name, executable=True)
     _touch(install / "share" / "wps" / "Variable_Tables" / "Vtable.GFS")
-    (install / "share" / "MPAS" / "core_atmosphere").mkdir(parents=True)
+    atmosphere_share = install / "share" / "MPAS" / "core_atmosphere"
+    atmosphere_share.mkdir(parents=True)
+    for name in REFERENCE_PHYSICS_FILES:
+        _touch(atmosphere_share / name)
 
     templates = tmp_path / "templates"
     template_names = {
@@ -46,6 +50,10 @@ def _config(tmp_path: Path) -> WorkflowConfig:
     for path in (invariant, mesh, graph, partition):
         _touch(path)
     tutorial.mkdir(parents=True)
+    _touch(tutorial / "namelist.atmosphere_240km")
+    _touch(tutorial / "streams.atmosphere_240km")
+    for name in REFERENCE_STREAM_LISTS:
+        _touch(tutorial / name)
 
     stack = tmp_path / "spack-stack"
     _touch(stack / "configs" / "sites" / "tier2" / "jaci" / "setup.sh")
@@ -125,3 +133,57 @@ def test_preflight_reports_missing_bootstrap_source(tmp_path: Path) -> None:
     assert report["valid"] is False
     checks = {item["name"]: item for item in report["checks"]}
     assert checks["pbs.bootstrap[1].source"]["status"] == "MISSING"
+
+
+
+def test_reference_path_skips_unused_generic_templates(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["validation"] = {"require_reference_preflight": True}
+
+    templates = Path(config.data["paths"]["cdct_templates_dir"])
+    for key in (
+        "static_namelist",
+        "static_streams",
+        "forecast_namelist",
+        "forecast_streams",
+    ):
+        (templates / config.data["templates"][key]).unlink()
+
+    report = config_preflight_report(config)
+
+    assert report["valid"] is True
+    checks = {item["name"]: item for item in report["checks"]}
+
+    assert "templates.static_namelist" not in checks
+    assert "templates.static_streams" not in checks
+    assert "templates.forecast_namelist" not in checks
+    assert "templates.forecast_streams" not in checks
+    assert checks["reference.forecast_namelist"]["status"] == "OK"
+    assert checks["reference.forecast_streams"]["status"] == "OK"
+
+
+def test_reference_path_reports_missing_real_forecast_input(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["validation"] = {"require_reference_preflight": True}
+
+    tutorial = Path(config.data["static"]["tutorial_physics_files"])
+    (tutorial / "streams.atmosphere_240km").unlink()
+
+    report = config_preflight_report(config)
+
+    assert report["valid"] is False
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["reference.forecast_streams"]["status"] == "MISSING"
+
+
+
+def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["validation"] = {"require_reference_preflight": True}
+    del config.data["static"]["tutorial_physics_files"]
+
+    report = config_preflight_report(config)
+
+    assert report["valid"] is False
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["static.tutorial_physics_files"]["status"] == "NOT_CONFIGURED"

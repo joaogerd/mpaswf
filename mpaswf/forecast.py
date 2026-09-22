@@ -43,6 +43,9 @@ REFERENCE_STREAM_LISTS = (
     "stream_list.atmosphere.ensemble",
 )
 
+REFERENCE_NAMELIST_FILE = "namelist.atmosphere_240km"
+REFERENCE_STREAMS_FILE = "streams.atmosphere_240km"
+
 
 @dataclass(frozen=True)
 class ForecastRun:
@@ -139,8 +142,8 @@ def _stage_reference_runtime(config: WorkflowConfig, run: ForecastRun) -> tuple[
     for name in REFERENCE_STREAM_LISTS:
         ensure_link(tutorial / name, run.run_dir / name)
 
-    namelist_source = tutorial / "namelist.atmosphere_240km"
-    streams_source = tutorial / "streams.atmosphere_240km"
+    namelist_source = tutorial / REFERENCE_NAMELIST_FILE
+    streams_source = tutorial / REFERENCE_STREAMS_FILE
     if not namelist_source.is_file():
         raise FileNotFoundError(f"Reference 240-km namelist does not exist: {namelist_source}")
     if not streams_source.is_file():

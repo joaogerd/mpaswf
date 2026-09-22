@@ -9,6 +9,12 @@ import shlex
 from typing import Iterable
 
 from .config import WorkflowConfig, render, resolve_path, string, value
+from .forecast import (
+    REFERENCE_NAMELIST_FILE,
+    REFERENCE_PHYSICS_FILES,
+    REFERENCE_STREAM_LISTS,
+    REFERENCE_STREAMS_FILE,
+)
 from .layout import Layout
 from .software import (
     atmosphere_share,
@@ -194,18 +200,39 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
 
 
 def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceCheck]:
+    """Validate only templates used by the active configuration path."""
     yield _required_dir("paths.cdct_templates_dir", layout.templates_dir)
-    for key in (
+
+    always_used = (
         "templates.wps",
-        "templates.static_namelist",
-        "templates.static_streams",
         "templates.init_namelist",
         "templates.init_streams",
-        "templates.forecast_namelist",
-        "templates.forecast_streams",
-    ):
+    )
+    for key in always_used:
         name = string(config, key) or ""
         yield _required_file(key, layout.templates_dir / name)
+
+    # Static templates are bypassed when a validated external invariant is
+    # supplied through static.source.
+    if string(config, "static.source", required=False, default=None) is None:
+        for key in ("templates.static_namelist", "templates.static_streams"):
+            name = string(config, key) or ""
+            yield _required_file(key, layout.templates_dir / name)
+
+    # The strict x1.10242/JACI reference forecast stages the proven tutorial
+    # namelist/streams instead of the generic forecast templates.
+    reference_forecast = bool(
+        value(
+            config,
+            "validation.require_reference_preflight",
+            required=False,
+            default=False,
+        )
+    )
+    if not reference_forecast:
+        for key in ("templates.forecast_namelist", "templates.forecast_streams"):
+            name = string(config, key) or ""
+            yield _required_file(key, layout.templates_dir / name)
 
 
 def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceCheck]:
@@ -219,17 +246,47 @@ def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceC
         }
         yield _required_file("static.source", resolve_path(config, raw_source, context))
 
+    reference_forecast = bool(
+        value(
+            config,
+            "validation.require_reference_preflight",
+            required=False,
+            default=False,
+        )
+    )
     tutorial_files = string(
         config,
         "static.tutorial_physics_files",
         required=False,
         default=None,
     )
-    if tutorial_files is not None:
-        yield _required_dir(
+    if tutorial_files is None and reference_forecast:
+        yield ResourceCheck(
             "static.tutorial_physics_files",
-            resolve_path(config, tutorial_files),
+            Path("<not configured>"),
+            "configured directory",
+            "NOT_CONFIGURED",
+            False,
+            "Required when validation.require_reference_preflight is true.",
         )
+    elif tutorial_files is not None:
+        tutorial_dir = resolve_path(config, tutorial_files)
+        yield _required_dir("static.tutorial_physics_files", tutorial_dir)
+
+        if reference_forecast:
+            yield _required_file(
+                "reference.forecast_namelist",
+                tutorial_dir / REFERENCE_NAMELIST_FILE,
+            )
+            yield _required_file(
+                "reference.forecast_streams",
+                tutorial_dir / REFERENCE_STREAMS_FILE,
+            )
+            for name in REFERENCE_STREAM_LISTS:
+                yield _required_file(
+                    f"reference.{name}",
+                    tutorial_dir / name,
+                )
 
     links = value(config, "static.links", required=False, default=[])
     if not isinstance(links, list):
@@ -268,6 +325,7 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
     if root is not None:
         checks.append(_required_dir("software.monan_jedi_root", root))
 
+    share = atmosphere_share(config)
     checks.extend(
         [
             _required_file(
@@ -295,12 +353,28 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
                 executable=True,
             ),
             _required_file("wps.vtable", wps_vtable(config, {})),
-            _required_dir("software.atmosphere_share", atmosphere_share(config)),
+            _required_dir("software.atmosphere_share", share),
             _writable_dir("paths.work_dir", layout.work_dir),
             _writable_dir("paths.static_dir", layout.static_dir),
             _writable_dir("paths.gfs_dir", layout.gfs_dir),
         ]
     )
+
+    if bool(
+        value(
+            config,
+            "validation.require_reference_preflight",
+            required=False,
+            default=False,
+        )
+    ):
+        for name in REFERENCE_PHYSICS_FILES:
+            checks.append(
+                _required_file(
+                    f"reference.physics.{name}",
+                    share / name,
+                )
+            )
 
     checks.extend(_template_checks(config, layout))
     checks.extend(_static_checks(config, layout))

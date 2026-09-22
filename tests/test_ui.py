@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 
-from mpaswf.ui import Spinner, status
+from mpaswf.ui import Spinner, check_result, status
 
 
 def test_status_uses_color_when_forced(monkeypatch) -> None:
@@ -45,3 +45,30 @@ def test_no_color_disables_ansi_even_when_forced(monkeypatch) -> None:
     status("Prepare phase: 5 initialization times.", stream=output)
 
     assert "\033[" not in output.getvalue()
+
+
+def test_check_result_uses_standard_status_markers(monkeypatch) -> None:
+    """Preflight rows use the same durable marker language as other commands."""
+    monkeypatch.setenv("MPASWF_COLOR", "never")
+    output = io.StringIO()
+
+    check_result(
+        "software.monan_jedi_root",
+        "/path/to/monan-jedi",
+        "OK",
+        ok=True,
+        stream=output,
+    )
+    check_result(
+        "reference.forecast_streams",
+        "/missing/streams.atmosphere_240km",
+        "MISSING",
+        ok=False,
+        stream=output,
+    )
+
+    rendered = output.getvalue()
+    assert "✓ software.monan_jedi_root — OK" in rendered
+    assert "· /path/to/monan-jedi" in rendered
+    assert "✗ reference.forecast_streams — MISSING" in rendered
+    assert "· /missing/streams.atmosphere_240km" in rendered

@@ -143,6 +143,39 @@ def status(message: str, *, stream: TextIO | None = None, style: Style | None = 
     output.flush()
 
 
+def check_result(
+    name: str,
+    path: str,
+    state: str,
+    *,
+    ok: bool,
+    detail: str = "",
+    stream: TextIO | None = None,
+) -> None:
+    """Print one filesystem preflight result using the MPASWF terminal theme.
+
+    Parameters
+    ----------
+    name : str
+        Configuration/resource label.
+    path : str
+        Fully resolved filesystem path.
+    state : str
+        Short validation state such as OK, CREATABLE, or MISSING.
+    ok : bool
+        Whether the check is acceptable for the active workflow path.
+    detail : str, optional
+        Additional explanation rendered as muted text.
+    stream : text stream, optional
+        Destination stream. Defaults to standard output.
+    """
+    output = stream or sys.stdout
+    style: Style = "success" if ok else "error"
+    status(f"{name} — {state}", stream=output, style=style)
+    status(path, stream=output, style="muted")
+    if detail:
+        status(detail, stream=output, style="muted")
+
 def format_bytes(size: int | None) -> str:
     """Format a byte count for compact terminal progress text.
 

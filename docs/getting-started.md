@@ -147,7 +147,10 @@ Required existing resources include:
 - `static.source` when a precomputed invariant is configured;
 - `static.tutorial_physics_files` when configured;
 - every `static.links[*].source` entry, including mesh, graph and partition;
-- the configured template directory and every template named by `templates.*`;
+- the configured template directory and the templates used by the active path;
+- for the strict x1.10242 reference forecast, the tutorial
+  `namelist.atmosphere_240km`, `streams.atmosphere_240km`, required
+  `stream_list.*` files, and installed MPAS physics files;
 - explicit filesystem paths used by `pbs.bootstrap` in `pushd`/`cd`,
   `source`, and `module use` commands.
 
@@ -170,22 +173,38 @@ Configuration resources valid: True
 
 ## 6. Validated templates remain separate
 
-MPASWF requires the validated case templates named by `templates.*`. The standard
-x1.10242 contract expects:
+Template requirements depend on the active workflow path.
+
+The maintained JACI/x1.10242 path uses the repository templates:
 
 ```text
 namelist.wps.in
-namelist.init_atmosphere.static.in
-streams.init_atmosphere.static.in
 namelist.init_atmosphere.in
 streams.init_atmosphere.in
-namelist.atmosphere.in
-streams.atmosphere.in
 ```
 
-Set `paths.cdct_templates_dir` to the directory containing the approved case.
-These are scientific/runtime inputs and are not generic files that MPASWF should
-invent automatically.
+Because `static.source` provides a validated invariant, the generic static
+templates are not used in this case. Because
+`validation.require_reference_preflight: true`, the forecast does not use the
+generic `templates.forecast_*` files either. It stages the validated tutorial
+runtime instead:
+
+```text
+namelist.atmosphere_240km
+streams.atmosphere_240km
+stream_list.atmosphere.analysis
+stream_list.atmosphere.background
+stream_list.atmosphere.control
+stream_list.atmosphere.ensemble
+```
+
+Generic/self-contained configurations still use the static templates when no
+`static.source` is configured and the generic forecast templates when the
+strict reference path is disabled.
+
+Set `paths.cdct_templates_dir` to the directory containing the approved
+repository templates. These scientific/runtime inputs must not be invented
+automatically.
 
 ## 7. Configure the campaign
 
