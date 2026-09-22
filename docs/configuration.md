@@ -279,6 +279,8 @@ The command resolves environment variables such as `$USER` and validates:
 - `static.source` when configured;
 - `static.tutorial_physics_files` when configured;
 - every `static.links[*].source` path, including mesh, graph and partition;
+- explicit filesystem paths used by `pbs.bootstrap` in `pushd`/`cd`,
+  `source`, and `module use` commands;
 - `paths.work_dir`, `paths.static_dir`, and `paths.gfs_dir`.
 
 Required inputs must already exist and be readable. Writable workflow/data
