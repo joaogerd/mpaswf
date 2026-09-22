@@ -258,6 +258,41 @@ legacy configurations.
 Optional `queue_static`, `queue_init`, and `queue_forecast` values may override
 the default queue for individual stages.
 
+## Filesystem preflight
+
+YAML/schema validation confirms that required keys have the expected shape, but
+it does not prove that the resolved user-specific files and directories are
+actually usable on the current machine.
+
+Before a first run, or after changing site paths, run:
+
+```bash
+mpaswf check-config --config configs/jaci-x1.10242.yaml
+```
+
+The command resolves environment variables such as `$USER` and validates:
+
+- `software.monan_jedi_root`;
+- MPAS/WPS executables derived from that installation;
+- the WPS Vtable and MPAS atmosphere share directory;
+- `paths.cdct_templates_dir` and every template named by `templates.*`;
+- `static.source` when configured;
+- `static.tutorial_physics_files` when configured;
+- every `static.links[*].source` path, including mesh, graph and partition;
+- `paths.work_dir`, `paths.static_dir`, and `paths.gfs_dir`.
+
+Required inputs must already exist and be readable. Writable workflow/data
+directories may still be absent when their nearest existing parent is writable;
+those are reported as `CREATABLE` rather than as failures.
+
+For a machine-readable report:
+
+```bash
+mpaswf check-config --config configs/jaci-x1.10242.yaml --json
+```
+
+Any missing or inaccessible mandatory resource makes the command exit non-zero.
+
 ## `validation`
 
 ```yaml
