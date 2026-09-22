@@ -174,3 +174,16 @@ def test_reference_path_reports_missing_real_forecast_input(tmp_path: Path) -> N
     assert report["valid"] is False
     checks = {item["name"]: item for item in report["checks"]}
     assert checks["reference.forecast_streams"]["status"] == "MISSING"
+
+
+
+def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["validation"] = {"require_reference_preflight": True}
+    del config.data["static"]["tutorial_physics_files"]
+
+    report = config_preflight_report(config)
+
+    assert report["valid"] is False
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["static.tutorial_physics_files"]["status"] == "NOT_CONFIGURED"
