@@ -10,7 +10,7 @@ from .config import load_config
 from .pbs import run_pbs_smoke
 from .preflight import config_preflight_report
 from .workflow import run_forecast, run_init, run_manifest, run_prepare
-from .ui import status
+from .ui import check_result, status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,21 +63,33 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == "check-config":
-        status(f"MPASWF config preflight: loading {args.config}.")
         config = load_config(args.config)
         report = config_preflight_report(config)
         if args.json:
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
+            status(f"MPASWF config preflight: {config.path}.")
             for check in report["checks"]:
-                marker = "OK" if check["ok"] else "FAIL"
-                detail = f" — {check['detail']}" if check["detail"] else ""
-                print(
-                    f"[{marker:4}] {check['name']}: {check['status']} "
-                    f"({check['expectation']})\n"
-                    f"       {check['path']}{detail}"
+                check_result(
+                    str(check["name"]),
+                    str(check["path"]),
+                    str(check["status"]),
+                    ok=bool(check["ok"]),
+                    detail=str(check["detail"]),
                 )
-            print(f"\nConfiguration resources valid: {report['valid']}")
+
+            total = len(report["checks"])
+            failed = sum(1 for check in report["checks"] if not check["ok"])
+            if report["valid"]:
+                status(
+                    f"MPASWF config preflight: complete — {total} checks passed.",
+                    style="success",
+                )
+            else:
+                status(
+                    f"MPASWF config preflight: failed — {failed} of {total} checks failed.",
+                    style="error",
+                )
         return 0 if report["valid"] else 1
 
     if args.command == "pbs-smoke":
