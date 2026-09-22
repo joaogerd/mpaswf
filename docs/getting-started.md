@@ -111,6 +111,17 @@ CONFIG=configs/jaci-x1.10242.yaml
 
 ## 5. Check the JACI platform paths
 
+Select the validated spack-stack checkout that PBS jobs must load:
+
+```bash
+export STACK_ROOT=/path/to/spack-stack
+test -f "$STACK_ROOT/configs/sites/tier2/jaci/setup.sh"
+```
+
+The shipped JACI YAML uses `${STACK_ROOT}` in `pbs.bootstrap`, so the same
+checkout is used on compute nodes without editing a user name into the
+configuration.
+
 The shipped configuration contains:
 
 ```yaml
@@ -182,9 +193,10 @@ When `gfs.url_template` is `null`, all required files must already exist.
 
 ## 9. Validate PBS/MPI first
 
-Before a real model job:
+Before a real model job, make sure `STACK_ROOT` is still exported and run:
 
 ```bash
+test -n "${STACK_ROOT:-}" || { echo "STACK_ROOT is not set"; exit 1; }
 mpaswf pbs-smoke --config "$CONFIG"
 ```
 
