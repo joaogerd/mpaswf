@@ -246,24 +246,33 @@ def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceC
         }
         yield _required_file("static.source", resolve_path(config, raw_source, context))
 
+    reference_forecast = bool(
+        value(
+            config,
+            "validation.require_reference_preflight",
+            required=False,
+            default=False,
+        )
+    )
     tutorial_files = string(
         config,
         "static.tutorial_physics_files",
         required=False,
         default=None,
     )
-    if tutorial_files is not None:
+    if tutorial_files is None and reference_forecast:
+        yield ResourceCheck(
+            "static.tutorial_physics_files",
+            Path("<not configured>"),
+            "configured directory",
+            "NOT_CONFIGURED",
+            False,
+            "Required when validation.require_reference_preflight is true.",
+        )
+    elif tutorial_files is not None:
         tutorial_dir = resolve_path(config, tutorial_files)
         yield _required_dir("static.tutorial_physics_files", tutorial_dir)
 
-        reference_forecast = bool(
-            value(
-                config,
-                "validation.require_reference_preflight",
-                required=False,
-                default=False,
-            )
-        )
         if reference_forecast:
             yield _required_file(
                 "reference.forecast_namelist",
