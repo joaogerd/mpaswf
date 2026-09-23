@@ -13,9 +13,13 @@ principles and then move to reference material.
 2. **[Configuration reference](configuration.md)** — field-by-field explanation
    of the split YAML model, merge rules, environment variables, template
    placeholders, PBS settings, validation, and backward compatibility.
-3. **[Design](design.md)** — software boundaries, dependency layers,
+3. **[JACI quasi-uniform mesh catalog](jaci-quasi-uniform-meshes.md)** — site
+   inventory of the MPAS grid, graph, archive, and validated partition assets
+   available under `projects/mpas_meshes/quasi_uniform`, including the rule for
+   matching a partition to the configured MPI rank count.
+4. **[Design](design.md)** — software boundaries, dependency layers,
    idempotence, and operational design decisions.
-4. **[CD-CT mapping](cdct_mapping.md)** — mapping between the validated CD-CT
+5. **[CD-CT mapping](cdct_mapping.md)** — mapping between the validated CD-CT
    reference responsibilities and MPASWF phases.
 
 ## Configuration files

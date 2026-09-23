@@ -64,6 +64,10 @@ paths:
 # ------------------------------------------------------------------------------
 # Fixed x1.10242 static/invariant and mesh assets available on JACI
 # ------------------------------------------------------------------------------
+# The full JACI quasi-uniform mesh/graph/partition inventory is documented in
+# docs/jaci-quasi-uniform-meshes.md. Keep pbs.mpiprocs consistent with the
+# selected graph partition under the mesh catalog's partitions/ directory.
+#
 # static.source selects reuse mode: MPASWF validates the precomputed invariant,
 # links it into paths.static_dir using static.product_template and skips static
 # interpolation. static.links is different: those are fixed mesh/decomposition
