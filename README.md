@@ -111,9 +111,11 @@ MPAS-BMatrix.
 
 ## First-run sequence on JACI
 
-After installing MONAN-JEDI:
+After installing MONAN-JEDI, select the validated spack-stack checkout used by
+compute-node jobs:
 
 ```bash
+export STACK_ROOT=/path/to/validated/spack-stack
 CONFIG=configs/jaci-x1.10242.yaml
 
 # Resolve $USER and validate software, templates, invariant, mesh/partition,
