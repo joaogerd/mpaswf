@@ -32,14 +32,16 @@ workflow:
 # Installed software
 # ------------------------------------------------------------------------------
 software:
-  # Public MONAN-JEDI installation prefix. MPASWF derives runtime executables and
+  # Public MONAN-JEDI installation prefix supplied by the ecosystem contract.
+  # Export MONAN_JEDI_INSTALL_ROOT before loading this JACI platform file.
+  # MPASWF derives runtime executables and
   # data from this tree, notably:
   #   <root>/bin/mpas_init_atmosphere
   #   <root>/bin/mpas_atmosphere
   #   <root>/bin/{ungrib.exe,link_grib.csh}
   #   <root>/share/wps/Variable_Tables/
   #   <root>/share/MPAS/core_atmosphere/
-  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
 
 # ------------------------------------------------------------------------------
 # Site storage layout
