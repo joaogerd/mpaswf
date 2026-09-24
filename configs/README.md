@@ -28,7 +28,7 @@ important software setting is one public MONAN-JEDI prefix:
 
 ```yaml
 software:
-  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
 ```
 
 From that root MPASWF derives:
@@ -128,7 +128,8 @@ installation:
 ## Backward compatibility
 
 Historical self-contained YAMLs remain supported. If no
-`software.monan_jedi_root` is configured, MPASWF still accepts the legacy keys:
+`software.monan_jedi_install_root` is absent, MPASWF first accepts the deprecated
+`software.monan_jedi_root` spelling and then the older executable-specific keys:
 
 ```yaml
 executables:
