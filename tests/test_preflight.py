@@ -62,7 +62,7 @@ def _config(tmp_path: Path) -> WorkflowConfig:
     return WorkflowConfig(
         path=tmp_path / "configs" / "jaci.yaml",
         data={
-            "software": {"monan_jedi_root": str(install)},
+            "software": {"monan_jedi_install_root": str(install)},
             "paths": {
                 "work_dir": str(tmp_path / "work" / "mpaswf"),
                 "static_dir": str(tmp_path / "work" / "mpaswf" / "static"),
@@ -100,7 +100,7 @@ def test_preflight_accepts_existing_inputs_and_creatable_work_dirs(tmp_path: Pat
     assert report["valid"] is True
     checks = {item["name"]: item for item in report["checks"]}
 
-    assert checks["software.monan_jedi_root"]["status"] == "OK"
+    assert checks["software.monan_jedi_install_root"]["status"] == "OK"
     assert checks["static.source"]["status"] == "OK"
     assert checks["static.links[2].source"]["status"] == "OK"
     assert checks["paths.work_dir"]["status"] == "CREATABLE"
