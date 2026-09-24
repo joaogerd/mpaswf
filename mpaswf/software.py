@@ -48,6 +48,7 @@ def monan_jedi_root(config: WorkflowConfig) -> Path | None:
     path = Path(raw).expanduser()
     return path if path.is_absolute() else (config.root / path).resolve()
 
+
 def installed_executable(config: WorkflowConfig, legacy_key: str, filename: str) -> Path:
     """Resolve one executable from the canonical prefix or a legacy override."""
     root = monan_jedi_root(config)
