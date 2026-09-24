@@ -39,7 +39,9 @@ implementation details. MPASWF must not point at them.
 
 Historical all-in-one configs using `executables.wps_dir`,
 `executables.mpas_init`, and `executables.mpas_atmosphere` remain supported for
-compatibility, but new JACI configurations should use `software.monan_jedi_install_root`.
+compatibility. The former `software.monan_jedi_root` spelling is also accepted
+with a deprecation warning. New JACI configurations should use
+`software.monan_jedi_install_root`.
 
 ## Other required inputs
 
