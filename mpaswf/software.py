@@ -15,9 +15,9 @@ accepted only as a compatibility fallback for existing self-contained configs.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Mapping
-import warnings
 
 from .config import ConfigurationError, WorkflowConfig, render, string
 
