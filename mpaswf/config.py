@@ -17,8 +17,8 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
