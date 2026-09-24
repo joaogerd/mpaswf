@@ -323,7 +323,7 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
 
     root = monan_jedi_root(config)
     if root is not None:
-        checks.append(_required_dir("software.monan_jedi_root", root))
+        checks.append(_required_dir("software.monan_jedi_install_root", root))
 
     share = atmosphere_share(config)
     checks.extend(
