@@ -1,6 +1,5 @@
 # MPASWF
 
-<!-- ecosystem-runtime-standard-v2 -->
 
 `mpaswf` prepares the MPAS forecast pairs used by the downstream
 [MPAS-BMatrix](https://github.com/joaogerd/MPAS-BMatrix) NMC workflow.
@@ -38,6 +37,24 @@ ${MONAN_JEDI_INSTALL_ROOT}/share/wps/Variable_Tables/Vtable.GFS
 
 The versioned WPS source/build/release directories are private MONAN-JEDI
 implementation details. MPASWF must not point at them.
+
+The dependency environment is selected separately:
+
+```bash
+export STACK_ROOT=/path/to/validated/spack-stack
+```
+
+MPASWF does not duplicate the spack-stack environment name, generated JEDI
+module name, or site setup script. Those values are read from:
+
+```text
+${MONAN_JEDI_INSTALL_ROOT}/share/monan-jedi/install-manifest.json
+```
+
+using `ecosystem_contract_version: 2`. This guarantees that the runtime
+installation and the module environment used on PBS compute nodes are the same
+contract. `STACK_ROOT` remains operator-selectable; the manifest describes the
+compatible environment inside that stack.
 
 Historical all-in-one configs using `executables.wps_dir`,
 `executables.mpas_init`, and `executables.mpas_atmosphere` remain supported for
