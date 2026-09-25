@@ -2,7 +2,7 @@
 
 The normal runtime contract has one public root::
 
-    <monan_jedi_root>/
+    <monan_jedi_install_root>/
         bin/
         lib/
         include/
@@ -15,6 +15,7 @@ accepted only as a compatibility fallback for existing self-contained configs.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Mapping
 
@@ -22,8 +23,26 @@ from .config import ConfigurationError, WorkflowConfig, render, string
 
 
 def monan_jedi_root(config: WorkflowConfig) -> Path | None:
-    """Return the configured MONAN-JEDI public installation prefix, if any."""
-    raw = string(config, "software.monan_jedi_root", required=False, default=None)
+    """Return the configured MONAN-JEDI public installation prefix, if any.
+
+    ``software.monan_jedi_install_root`` is the canonical key. The historical
+    ``software.monan_jedi_root`` spelling remains accepted during migration.
+    """
+    raw = string(
+        config,
+        "software.monan_jedi_install_root",
+        required=False,
+        default=None,
+    )
+    if raw is None:
+        raw = string(config, "software.monan_jedi_root", required=False, default=None)
+        if raw is not None:
+            warnings.warn(
+                "software.monan_jedi_root is deprecated; use "
+                "software.monan_jedi_install_root",
+                DeprecationWarning,
+                stacklevel=2,
+            )
     if raw is None:
         return None
     path = Path(raw).expanduser()
@@ -39,7 +58,7 @@ def installed_executable(config: WorkflowConfig, legacy_key: str, filename: str)
     raw = string(config, legacy_key, required=False, default=None)
     if raw is None:
         raise ConfigurationError(
-            f"Configure software.monan_jedi_root or the legacy {legacy_key} path."
+            f"Configure software.monan_jedi_install_root or the legacy {legacy_key} path."
         )
     path = Path(raw).expanduser()
     return path if path.is_absolute() else (config.root / path).resolve()
@@ -54,7 +73,7 @@ def atmosphere_share(config: WorkflowConfig) -> Path:
     raw = string(config, "executables.mpas_atmosphere_share", required=False, default=None)
     if raw is None:
         raise ConfigurationError(
-            "Configure software.monan_jedi_root or the legacy "
+            "Configure software.monan_jedi_install_root or the legacy "
             "executables.mpas_atmosphere_share path."
         )
     path = Path(raw).expanduser()
@@ -70,7 +89,7 @@ def wps_executable(config: WorkflowConfig, filename: str) -> Path:
     legacy_root = string(config, "executables.wps_dir", required=False, default=None)
     if legacy_root is None:
         raise ConfigurationError(
-            "Configure software.monan_jedi_root or the legacy executables.wps_dir path."
+            "Configure software.monan_jedi_install_root or the legacy executables.wps_dir path."
         )
     path = Path(legacy_root).expanduser()
     if not path.is_absolute():
@@ -92,7 +111,7 @@ def wps_vtable(config: WorkflowConfig, context: Mapping[str, str]) -> Path:
     legacy_root = string(config, "executables.wps_dir", required=False, default=None)
     if legacy_root is None:
         raise ConfigurationError(
-            "Configure software.monan_jedi_root or the legacy executables.wps_dir path."
+            "Configure software.monan_jedi_install_root or the legacy executables.wps_dir path."
         )
     legacy_context = {**context, "wps_dir": legacy_root}
     raw = string(

@@ -66,6 +66,11 @@ def _append_pbs_runtime_setup(lines: list[str], pbs: Mapping[str, object]) -> No
     hierarchy on JACI. ``pbs.modules`` is retained for backwards compatibility
     with older configurations that only needed direct module-load statements.
     """
+    stack_root = pbs.get("stack_root")
+    if stack_root is not None:
+        if not isinstance(stack_root, str) or not stack_root.strip():
+            raise ValueError("pbs.stack_root must be a non-empty string when configured.")
+        lines.append(f"export STACK_ROOT={shlex.quote(stack_root)}")
     lines.extend(_configured_shell_lines(pbs.get("bootstrap"), "pbs.bootstrap"))
     lines.extend(_configured_shell_lines(pbs.get("modules"), "pbs.modules"))
     environment = pbs.get("environment", {})

@@ -120,10 +120,18 @@ def _existing_path(name: str, path: Path) -> ResourceCheck:
     return ResourceCheck(name, path, "existing path", "OK", True)
 
 
-def _resolve_bootstrap_path(raw: str, base: Path) -> tuple[Path | None, str | None]:
-    expanded = os.path.expandvars(raw)
+def _resolve_bootstrap_path(
+    raw: str,
+    base: Path,
+    *,
+    stack_root: str | None = None,
+) -> tuple[Path | None, str | None]:
+    expanded = raw
+    if stack_root:
+        expanded = expanded.replace("${STACK_ROOT}", stack_root).replace("$STACK_ROOT", stack_root)
+    expanded = os.path.expandvars(expanded)
     if "$" in expanded:
-        return None, f"Unresolved environment variable in bootstrap path: {raw}"
+        return None, f"Deferred shell variable in bootstrap path: {raw}"
     path = Path(expanded).expanduser()
     return (path if path.is_absolute() else (base / path).resolve()), None
 
@@ -135,6 +143,7 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
 
     current_dir = config.root
     directory_stack: list[Path] = []
+    stack_root = string(config, "pbs.stack_root", required=False, default=None)
 
     for index, command in enumerate(commands):
         if not isinstance(command, str) or not command.strip():
@@ -147,14 +156,14 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
             continue
 
         if tokens[0] in {"pushd", "cd"} and len(tokens) >= 2:
-            path, error = _resolve_bootstrap_path(tokens[1], current_dir)
+            path, error = _resolve_bootstrap_path(tokens[1], current_dir, stack_root=stack_root)
             if error is not None or path is None:
                 yield ResourceCheck(
                     f"pbs.bootstrap[{index}]",
                     Path(tokens[1]),
                     "bootstrap directory",
-                    "UNRESOLVED_ENV",
-                    False,
+                    "DEFERRED_SHELL",
+                    True,
                     error or "",
                 )
                 continue
@@ -170,14 +179,14 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
             continue
 
         if tokens[0] == "source" and len(tokens) >= 2:
-            path, error = _resolve_bootstrap_path(tokens[1], current_dir)
+            path, error = _resolve_bootstrap_path(tokens[1], current_dir, stack_root=stack_root)
             if error is not None or path is None:
                 yield ResourceCheck(
                     f"pbs.bootstrap[{index}]",
                     Path(tokens[1]),
                     "bootstrap source file",
-                    "UNRESOLVED_ENV",
-                    False,
+                    "DEFERRED_SHELL",
+                    True,
                     error or "",
                 )
                 continue
@@ -185,14 +194,14 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
             continue
 
         if tokens[0:2] == ["module", "use"] and len(tokens) >= 3:
-            path, error = _resolve_bootstrap_path(tokens[2], current_dir)
+            path, error = _resolve_bootstrap_path(tokens[2], current_dir, stack_root=stack_root)
             if error is not None or path is None:
                 yield ResourceCheck(
                     f"pbs.bootstrap[{index}]",
                     Path(tokens[2]),
                     "module directory",
-                    "UNRESOLVED_ENV",
-                    False,
+                    "DEFERRED_SHELL",
+                    True,
                     error or "",
                 )
                 continue
@@ -323,7 +332,7 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
 
     root = monan_jedi_root(config)
     if root is not None:
-        checks.append(_required_dir("software.monan_jedi_root", root))
+        checks.append(_required_dir("software.monan_jedi_install_root", root))
 
     share = atmosphere_share(config)
     checks.extend(

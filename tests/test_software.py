@@ -18,11 +18,13 @@ def _config(data: dict[str, object]) -> WorkflowConfig:
 
 def test_jaci_configuration_uses_one_monan_jedi_root(monkeypatch) -> None:
     monkeypatch.setenv("USER", "runtime-user")
+    expected = "/runtime/monan-jedi"
+    monkeypatch.setenv("MONAN_JEDI_INSTALL_ROOT", expected)
+    monkeypatch.setenv("STACK_ROOT", "/runtime/spack-stack")
     root = Path(__file__).resolve().parents[1]
-    config = load_config(root / "configs" / "jaci-x1.10242.yaml")
+    config = load_config(root / "configs/jaci-x1.10242.yaml")
 
-    expected = "/p/projetos/monan_das/runtime-user/build/monan-jedi"
-    assert value(config, "software.monan_jedi_root") == expected
+    assert value(config, "software.monan_jedi_install_root") == expected
     assert monan_jedi_root(config) == Path(expected)
     assert installed_executable(config, "executables.mpas_init", "mpas_init_atmosphere") == Path(expected) / "bin/mpas_init_atmosphere"
     assert installed_executable(config, "executables.mpas_atmosphere", "mpas_atmosphere") == Path(expected) / "bin/mpas_atmosphere"

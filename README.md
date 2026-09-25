@@ -23,7 +23,7 @@ compiled runtime software:
 export MONAN_JEDI_INSTALL_ROOT=/p/projetos/monan_das/$USER/build/monan-jedi
 ```
 
-`configs/jaci-x1.10242.yaml` points `software.monan_jedi_root` to that prefix.
+`configs/jaci-x1.10242.yaml` binds `software.monan_jedi_install_root` to `${MONAN_JEDI_INSTALL_ROOT}`, so the shell and YAML resolve the same public runtime.
 MPASWF derives the required files from it:
 
 ```text
@@ -39,7 +39,9 @@ implementation details. MPASWF must not point at them.
 
 Historical all-in-one configs using `executables.wps_dir`,
 `executables.mpas_init`, and `executables.mpas_atmosphere` remain supported for
-compatibility, but new JACI configurations should use `software.monan_jedi_root`.
+compatibility. The former `software.monan_jedi_root` spelling is also accepted
+with a deprecation warning. New JACI configurations should use
+`software.monan_jedi_install_root`.
 
 ## Other required inputs
 
@@ -90,7 +92,7 @@ The important software setting is:
 
 ```yaml
 software:
-  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
 ```
 
 See [docs/configuration.md](docs/configuration.md) for the complete configuration

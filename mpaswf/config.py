@@ -17,6 +17,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -25,6 +26,10 @@ import yaml
 
 class ConfigurationError(ValueError):
     """Raised when a required configuration field is absent or malformed."""
+
+
+_ENV_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_DEFERRED_SHELL_PREFIXES = ("pbs.bootstrap[", "pbs.modules[", "pbs.environment.")
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,36 @@ def _expand_env(item: Any) -> Any:
     return item
 
 
+def _unresolved_environment_references(item: Any, path: str = "") -> list[tuple[str, str]]:
+    """Return unresolved shell-variable references with dotted configuration paths."""
+    unresolved: list[tuple[str, str]] = []
+    if isinstance(item, Mapping):
+        for key, value in item.items():
+            child = f"{path}.{key}" if path else str(key)
+            unresolved.extend(_unresolved_environment_references(value, child))
+    elif isinstance(item, list):
+        for index, value in enumerate(item):
+            child = f"{path}[{index}]"
+            unresolved.extend(_unresolved_environment_references(value, child))
+    elif isinstance(item, str):
+        for match in _ENV_REFERENCE.finditer(item):
+            unresolved.append((path or "<root>", match.group(1) or match.group(2)))
+    return unresolved
+
+
+def _validate_environment_expansion(item: Any) -> None:
+    """Fail early instead of carrying literal ${VAR} strings into filesystem paths."""
+    unresolved = [
+        (path, name)
+        for path, name in _unresolved_environment_references(item)
+        if not path.startswith(_DEFERRED_SHELL_PREFIXES)
+    ]
+    if not unresolved:
+        return
+    details = ", ".join(f"{path} -> {name}" for path, name in unresolved)
+    raise ConfigurationError("Unresolved environment variable(s): " + details)
+
+
 def _workflow_contract_path(platform_path: Path, platform: Mapping[str, Any]) -> Path | None:
     """Resolve optional ``workflow.configuration`` relative to the platform file."""
     workflow = platform.get("workflow")
@@ -105,7 +140,9 @@ def _workflow_contract_path(platform_path: Path, platform: Mapping[str, Any]) ->
         return None
     if not isinstance(specification, str) or not specification.strip():
         raise ConfigurationError("workflow.configuration must be a non-empty YAML path.")
-    candidate = Path(os.path.expandvars(specification)).expanduser()
+    expanded = os.path.expandvars(specification)
+    _validate_environment_expansion({"workflow.configuration": expanded})
+    candidate = Path(expanded).expanduser()
     return candidate if candidate.is_absolute() else (platform_path.parent / candidate).resolve()
 
 
@@ -130,6 +167,7 @@ def load_config(path: Path) -> WorkflowConfig:
         # diagnostics without changing any existing configuration key.
         merged["workflow_contract_path"] = str(contract_path)
 
+    _validate_environment_expansion(merged)
     config = WorkflowConfig(path=platform_path, data=merged)
     validate_config(config)
     return config
@@ -192,7 +230,7 @@ def render(template: str, context: Mapping[str, str]) -> str:
 def validate_config(config: WorkflowConfig) -> None:
     """Perform the intentionally small MPASWF schema validation.
 
-    New platform configurations declare one ``software.monan_jedi_root`` and
+    New platform configurations declare one ``software.monan_jedi_install_root`` and
     derive MPAS/WPS runtime files from its ``bin`` and ``share`` directories.
     Historical all-in-one configurations with ``executables.*`` remain valid so
     existing experiments do not break during the transition.
@@ -225,7 +263,9 @@ def validate_config(config: WorkflowConfig) -> None:
     ):
         string(config, key)
 
-    monan_root = string(config, "software.monan_jedi_root", required=False, default=None)
+    monan_root = string(config, "software.monan_jedi_install_root", required=False, default=None)
+    if monan_root is None:
+        monan_root = string(config, "software.monan_jedi_root", required=False, default=None)
     if monan_root is None:
         mapping(config, "executables")
         for key in (
@@ -245,5 +285,11 @@ def validate_config(config: WorkflowConfig) -> None:
 
     if backend == "pbs":
         mapping(config, "pbs")
-        for key in ("pbs.queue", "pbs.walltime_static", "pbs.walltime_init", "pbs.walltime_forecast"):
+        for key in (
+            "pbs.queue",
+            "pbs.walltime_static",
+            "pbs.walltime_init",
+            "pbs.walltime_forecast",
+        ):
             string(config, key)
+        string(config, "pbs.stack_root", required=False, default=None)

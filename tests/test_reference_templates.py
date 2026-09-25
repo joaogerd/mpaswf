@@ -11,15 +11,17 @@ from mpaswf.model import parse_time
 from mpaswf.wps import wps_output_path
 
 
-def _reference():
+def _reference(monkeypatch):
     repo = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("MONAN_JEDI_INSTALL_ROOT", "/runtime/monan-jedi")
+    monkeypatch.setenv("STACK_ROOT", "/runtime/spack-stack")
     config = load_config(repo / "configs/jaci-x1.10242.yaml")
     return repo, config, Layout.from_config(config)
 
 
-def test_jaci_x1_10242_uses_versioned_templates() -> None:
+def test_jaci_x1_10242_uses_versioned_templates(monkeypatch) -> None:
     """The reference config must not depend on an external template checkout."""
-    repo, _, layout = _reference()
+    repo, _, layout = _reference(monkeypatch)
 
     assert layout.templates_dir == (repo / "templates/x1.10242").resolve()
     for name in (
@@ -30,9 +32,9 @@ def test_jaci_x1_10242_uses_versioned_templates() -> None:
         assert (layout.templates_dir / name).is_file()
 
 
-def test_x1_10242_wps_product_uses_cdct_gfs_prefix() -> None:
+def test_x1_10242_wps_product_uses_cdct_gfs_prefix(monkeypatch) -> None:
     """WPS product naming remains aligned with the CD-CT GFS prefix."""
-    _, config, layout = _reference()
+    _, config, layout = _reference(monkeypatch)
     init_time = parse_time("2026-06-20T00:00:00Z")
 
     output = wps_output_path(config, layout, init_time)
@@ -40,9 +42,9 @@ def test_x1_10242_wps_product_uses_cdct_gfs_prefix() -> None:
     assert output.name == "GFS:2026-06-20_00"
 
 
-def test_x1_10242_init_templates_render_invariant_contract(tmp_path: Path) -> None:
+def test_x1_10242_init_templates_render_invariant_contract(tmp_path: Path, monkeypatch) -> None:
     """Rendered init files preserve the validated invariant/GFS setup."""
-    _, config, layout = _reference()
+    _, config, layout = _reference(monkeypatch)
     init_time = parse_time("2026-06-20T00:00:00Z")
     context = layout.context(init_time, init_time, 0, tmp_path)
 

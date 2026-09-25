@@ -30,13 +30,14 @@ over it. Relative paths are resolved from the platform configuration directory.
 
 ## `software`
 
-### `software.monan_jedi_root`
+### `software.monan_jedi_install_root`
 
-Canonical public installation prefix produced by MONAN-JEDI.
+Canonical public installation prefix produced by MONAN-JEDI. The maintained JACI
+configuration binds this key explicitly to `${MONAN_JEDI_INSTALL_ROOT}`.
 
 ```yaml
 software:
-  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
 ```
 
 MPASWF derives:
@@ -54,7 +55,9 @@ checkout, `work/` tree, or versioned WPS release directory.
 
 ## Legacy `executables`
 
-When `software.monan_jedi_root` is absent, historical configs remain supported:
+When `software.monan_jedi_install_root` is absent, the deprecated
+`software.monan_jedi_root` spelling remains accepted with a deprecation warning.
+If neither root key is present, historical executable-specific configs remain supported:
 
 ```yaml
 executables:
@@ -140,7 +143,7 @@ wps:
 resolved as:
 
 ```text
-${software.monan_jedi_root}/share/wps/Variable_Tables/${wps.vtable_name}
+${software.monan_jedi_install_root}/share/wps/Variable_Tables/${wps.vtable_name}
 ```
 
 Legacy configs may instead provide:
@@ -265,7 +268,7 @@ The MONAN-JEDI installation root and the external stack remain separate
 contracts:
 
 ```text
-software.monan_jedi_root -> installed MPAS/WPS/JEDI runtime products
+software.monan_jedi_install_root -> installed MPAS/WPS/JEDI runtime products
 pbs.bootstrap            -> compute-node dependency/MPI environment
 ```
 
@@ -289,7 +292,7 @@ mpaswf check-config --config configs/jaci-x1.10242.yaml
 
 The command resolves environment variables such as `$USER` and validates:
 
-- `software.monan_jedi_root`;
+- `software.monan_jedi_install_root`;
 - MPAS/WPS executables derived from that installation;
 - the WPS Vtable and MPAS atmosphere share directory;
 - `paths.cdct_templates_dir` and only the templates consumed by the active
@@ -327,7 +330,17 @@ These checks prevent reuse of empty or obviously incomplete products.
 
 ## Environment expansion
 
-Environment variables in YAML strings are expanded before validation. For JACI,
+Environment variables in ordinary configuration strings are expanded before validation.
+Any unresolved `${VARIABLE}` reference needed by MPASWF itself is a configuration error
+and fails before filesystem work begins.
+
+PBS shell bodies are intentionally different: `pbs.bootstrap`, `pbs.modules`, and
+`pbs.environment.*` are deferred shell content and may reference variables such as
+`${PBS_JOBID}` or `${PBS_O_WORKDIR}` that exist only on the compute node.
+The selected spack-stack is not deferred: bind it through `pbs.stack_root:
+${STACK_ROOT}`; the renderer embeds `export STACK_ROOT=...` before bootstrap commands.
+
+For JACI,
 `$USER` supplies user-specific storage roots and `STACK_ROOT` selects the
 spack-stack checkout used by PBS bootstrap commands. Export `STACK_ROOT` before
 running `check-config`, `pbs-smoke`, `init`, or `forecast`.
@@ -337,7 +350,7 @@ running `check-config`, `pbs-smoke`, `init`, or `forecast`.
 A useful way to decide where a setting belongs is:
 
 ```text
-compiled MONAN/MPAS/JEDI/WPS software -> software.monan_jedi_root
+compiled MONAN/MPAS/JEDI/WPS software -> software.monan_jedi_install_root
 mesh/GFS/templates/campaign data       -> explicit workflow input paths
 work/output products                   -> paths.work_dir / paths.static_dir
 scheduler/runtime policy               -> execution / pbs

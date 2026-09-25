@@ -122,12 +122,15 @@ The shipped JACI YAML uses `${STACK_ROOT}` in `pbs.bootstrap`. This keeps the
 stack choice outside the repository and lets the preflight validate the same
 checkout that compute-node jobs will use.
 
-The shipped configuration contains:
+The shipped configuration binds the public runtime explicitly:
 
 ```yaml
 software:
-  monan_jedi_root: /p/projetos/monan_das/$USER/build/monan-jedi
+  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
 ```
+
+Therefore both `MONAN_JEDI_INSTALL_ROOT` and `STACK_ROOT` must be exported before
+loading the maintained JACI configuration.
 
 It also defines writable directories such as:
 
@@ -331,4 +334,5 @@ executables:
 remain supported. They are a compatibility path, not the recommended layout for
 new JACI runs.
 
-For all new installations, configure one `software.monan_jedi_root` instead.
+For all new installations, configure one `software.monan_jedi_install_root` instead.
+The former `software.monan_jedi_root` spelling remains a deprecated compatibility alias.
