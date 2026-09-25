@@ -144,3 +144,11 @@ single MONAN-JEDI root.
 
 See [docs/getting-started.md](../docs/getting-started.md) and
 [docs/configuration.md](../docs/configuration.md).
+
+
+### PBS environment ownership
+
+The maintained JACI platform resolves `pbs.stack_root` from `${STACK_ROOT}` before
+submission. Bootstrap/module commands remain literal shell commands and may use
+scheduler-provided variables that only exist inside the PBS job. This separation keeps
+configuration errors detectable without prematurely expanding PBS runtime variables.
