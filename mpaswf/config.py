@@ -290,6 +290,6 @@ def validate_config(config: WorkflowConfig) -> None:
             "pbs.walltime_static",
             "pbs.walltime_init",
             "pbs.walltime_forecast",
-            "pbs.stack_root",
         ):
             string(config, key)
+        string(config, "pbs.stack_root", required=False, default=None)
