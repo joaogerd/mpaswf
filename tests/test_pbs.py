@@ -38,6 +38,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                 "mpiprocs": 128,
                 "place": "excl",
                 "launcher": ["mpiexec", "-n", "{mpi_ranks}"],
+                "stack_root": "/runtime/spack-stack",
                 "bootstrap": bootstrap,
                 "modules": [],
                 "environment": {"OMP_NUM_THREADS": "1"},
@@ -64,6 +65,8 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     assert "#PBS -l place=excl" in rendered
     assert "umask 002" in rendered
     assert "module load jedi-mpas-env/1.0.0" in rendered
+    assert "export STACK_ROOT=/runtime/spack-stack" in rendered
+    assert rendered.index("export STACK_ROOT=/runtime/spack-stack") < rendered.index(bootstrap[0])
     assert "export OMP_NUM_THREADS=1" in rendered
     assert "mpiexec -n 128" in rendered
     assert rendered.index(bootstrap[0]) < rendered.index("mpiexec -n 128")
