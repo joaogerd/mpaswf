@@ -29,6 +29,7 @@ def test_split_configuration_loads_and_deep_merges(monkeypatch) -> None:
     assert links[0]["target"] == "x1.10242.grid.nc"
     assert value(config, "execution.backend") == "pbs"
     assert value(config, "software.monan_jedi_install_root") == "/runtime/monan-jedi"
+    assert value(config, "pbs.stack_root") == "/runtime/spack-stack"
 
     # Environment expansion happens before the workflow sees paths.
     assert "mpaswf-test-user" in value(config, "paths.work_dir")
@@ -98,3 +99,56 @@ def test_legacy_monan_jedi_root_key_remains_accepted() -> None:
 
     with pytest.warns(DeprecationWarning, match="monan_jedi_root"):
         assert monan_jedi_root(config) == Path("/legacy/install")
+
+
+def test_deferred_pbs_shell_variable_does_not_fail_config_loading(tmp_path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+paths:
+  work_dir: /tmp/work
+  static_dir: /tmp/static
+  gfs_dir: /tmp/gfs
+  cdct_templates_dir: /tmp/templates
+campaign:
+  start_valid_time: "2026-01-01T00:00:00Z"
+  end_valid_time: "2026-01-02T00:00:00Z"
+  leads_hours: [24, 48]
+gfs:
+  file_template: file
+wps:
+  output_template: output
+products:
+  init_state_template: init
+  restart_template: restart
+  da_state_template: da
+templates:
+  wps: wps
+  static_namelist: static_nml
+  static_streams: static_streams
+  init_namelist: init_nml
+  init_streams: init_streams
+  forecast_namelist: forecast_nml
+  forecast_streams: forecast_streams
+static:
+  reference_time: "2026-01-01T00:00:00Z"
+  product_template: static.nc
+execution:
+  backend: pbs
+validation: {}
+software:
+  monan_jedi_install_root: /runtime/monan-jedi
+pbs:
+  queue: test
+  walltime_static: "00:10:00"
+  walltime_init: "00:10:00"
+  walltime_forecast: "00:10:00"
+  stack_root: /runtime/spack-stack
+  bootstrap:
+    - 'cd "$PBS_O_WORKDIR"'
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert value(config, "pbs.bootstrap")[0] == 'cd "$PBS_O_WORKDIR"'
