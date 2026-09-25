@@ -59,9 +59,11 @@ Select the validated checkout at run time:
 export STACK_ROOT=/path/to/validated/spack-stack
 ```
 
-The `${STACK_ROOT}` references in `pbs.bootstrap` are expanded before PBS
-scripts are rendered. The filesystem preflight also reports an unresolved or
-inaccessible stack path before submission.
+The platform binds `pbs.stack_root` to `${STACK_ROOT}`. Stack environment
+name, module name, site setup path and module root are read from the installed
+MONAN-JEDI ecosystem contract v2; they are not copied into this YAML. The
+filesystem preflight validates both the selected stack and the installed
+contract before submission.
 
 ## Workflow/campaign file
 
