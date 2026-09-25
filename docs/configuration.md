@@ -330,8 +330,16 @@ These checks prevent reuse of empty or obviously incomplete products.
 
 ## Environment expansion
 
-Environment variables in YAML strings are expanded before validation. Any unresolved
-`${VARIABLE}` reference is a configuration error and fails before filesystem work begins.
+Environment variables in ordinary configuration strings are expanded before validation.
+Any unresolved `${VARIABLE}` reference needed by MPASWF itself is a configuration error
+and fails before filesystem work begins.
+
+PBS shell bodies are intentionally different: `pbs.bootstrap`, `pbs.modules`, and
+`pbs.environment.*` are deferred shell content and may reference variables such as
+`${PBS_JOBID}` or `${PBS_O_WORKDIR}` that exist only on the compute node.
+The selected spack-stack is not deferred: bind it through `pbs.stack_root:
+${STACK_ROOT}`; the renderer embeds `export STACK_ROOT=...` before bootstrap commands.
+
 For JACI,
 `$USER` supplies user-specific storage roots and `STACK_ROOT` selects the
 spack-stack checkout used by PBS bootstrap commands. Export `STACK_ROOT` before
