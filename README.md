@@ -1,5 +1,7 @@
 # MPASWF
 
+<!-- ecosystem-runtime-standard-v2 -->
+
 `mpaswf` prepares the MPAS forecast pairs used by the downstream
 [MPAS-BMatrix](https://github.com/joaogerd/MPAS-BMatrix) NMC workflow.
 
