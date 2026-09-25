@@ -87,13 +87,29 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
     return result
 
 
-def _expand_env(item: Any) -> Any:
-    """Expand shell environment variables recursively in decoded YAML values."""
+def _expand_env(item: Any, path: str = "") -> Any:
+    """Expand configuration-time environment variables without touching PBS shell.
+
+    Values below pbs.bootstrap, pbs.modules and pbs.environment are literal
+    compute-node shell content. They must survive configuration loading even
+    when a same-named variable happens to exist in the submission shell.
+    """
     if isinstance(item, Mapping):
-        return {str(key): _expand_env(value) for key, value in item.items()}
+        return {
+            str(key): _expand_env(
+                value,
+                f"{path}.{key}" if path else str(key),
+            )
+            for key, value in item.items()
+        }
     if isinstance(item, list):
-        return [_expand_env(value) for value in item]
+        return [
+            _expand_env(value, f"{path}[{index}]")
+            for index, value in enumerate(item)
+        ]
     if isinstance(item, str):
+        if path.startswith(_DEFERRED_SHELL_PREFIXES):
+            return item
         return os.path.expandvars(item)
     return item
 
