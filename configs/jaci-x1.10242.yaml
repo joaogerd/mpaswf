@@ -159,6 +159,10 @@ pbs:
   # Seconds between qstat checks while waiting. Values below 1 are clamped to 1.
   poll_seconds: 30
 
+  # Resolved stack checkout exported by the renderer before bootstrap commands.
+  # This is configuration, not a deferred PBS variable.
+  stack_root: ${STACK_ROOT}
+
   # Literal shell commands executed on the PBS compute node before MPI starts.
   # Use this block for site/module hierarchy initialization that must be repeated
   # inside every submitted job. STACK_ROOT is expanded from the caller's
