@@ -29,6 +29,7 @@ class ConfigurationError(ValueError):
 
 
 _ENV_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_DEFERRED_SHELL_PREFIXES = ("pbs.bootstrap[", "pbs.modules[", "pbs.environment.")
 
 
 @dataclass(frozen=True)
@@ -116,7 +117,11 @@ def _unresolved_environment_references(item: Any, path: str = "") -> list[tuple[
 
 def _validate_environment_expansion(item: Any) -> None:
     """Fail early instead of carrying literal ${VAR} strings into filesystem paths."""
-    unresolved = _unresolved_environment_references(item)
+    unresolved = [
+        (path, name)
+        for path, name in _unresolved_environment_references(item)
+        if not path.startswith(_DEFERRED_SHELL_PREFIXES)
+    ]
     if not unresolved:
         return
     details = ", ".join(f"{path} -> {name}" for path, name in unresolved)
@@ -280,5 +285,11 @@ def validate_config(config: WorkflowConfig) -> None:
 
     if backend == "pbs":
         mapping(config, "pbs")
-        for key in ("pbs.queue", "pbs.walltime_static", "pbs.walltime_init", "pbs.walltime_forecast"):
+        for key in (
+            "pbs.queue",
+            "pbs.walltime_static",
+            "pbs.walltime_init",
+            "pbs.walltime_forecast",
+            "pbs.stack_root",
+        ):
             string(config, key)
