@@ -8,7 +8,7 @@ from pathlib import Path
 import shlex
 from typing import Iterable
 
-from .config import WorkflowConfig, render, resolve_path, string, value
+from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value
 from .forecast import (
     REFERENCE_NAMELIST_FILE,
     REFERENCE_PHYSICS_FILES,
@@ -20,6 +20,7 @@ from .software import (
     atmosphere_share,
     installed_executable,
     monan_jedi_root,
+    runtime_contract,
     wps_executable,
     wps_vtable,
 )
@@ -333,6 +334,61 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
     root = monan_jedi_root(config)
     if root is not None:
         checks.append(_required_dir("software.monan_jedi_install_root", root))
+        contract_path = root / "share" / "monan-jedi" / "install-manifest.json"
+        checks.append(_required_file("software.runtime_contract", contract_path))
+
+        stack_root_raw = string(config, "pbs.stack_root", required=False, default=None)
+        if stack_root_raw is not None and contract_path.is_file():
+            stack_root = Path(stack_root_raw).expanduser()
+            checks.append(_required_dir("pbs.stack_root", stack_root))
+            try:
+                contract = runtime_contract(config)
+            except ConfigurationError as error:
+                checks.append(
+                    ResourceCheck(
+                        "software.runtime_contract_v2",
+                        contract_path,
+                        "ecosystem contract v2",
+                        "INVALID",
+                        False,
+                        str(error),
+                    )
+                )
+            else:
+                checks.append(
+                    ResourceCheck(
+                        "software.runtime_contract_v2",
+                        contract_path,
+                        "ecosystem contract v2",
+                        "OK",
+                        True,
+                    )
+                )
+                checks.append(
+                    _required_file(
+                        "stack.site_setup",
+                        stack_root / contract.stack_site_setup,
+                    )
+                )
+                checks.append(
+                    _required_dir(
+                        "stack.module_root",
+                        contract.module_root(stack_root),
+                    )
+                )
+
+            site_module_paths = value(
+                config, "pbs.site_module_paths", required=False, default=[]
+            )
+            if isinstance(site_module_paths, list):
+                for index, raw in enumerate(site_module_paths):
+                    if isinstance(raw, str) and raw:
+                        checks.append(
+                            _required_dir(
+                                f"pbs.site_module_paths[{index}]",
+                                Path(raw).expanduser(),
+                            )
+                        )
 
     share = atmosphere_share(config)
     checks.extend(

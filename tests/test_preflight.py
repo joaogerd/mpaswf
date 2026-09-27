@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from mpaswf.config import WorkflowConfig
@@ -28,6 +29,28 @@ def _config(tmp_path: Path) -> WorkflowConfig:
     atmosphere_share.mkdir(parents=True)
     for name in REFERENCE_PHYSICS_FILES:
         _touch(atmosphere_share / name)
+
+    manifest = install / "share" / "monan-jedi" / "install-manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ecosystem_contract_version": 2,
+                "contract": "monan-jedi-runtime-v2",
+                "public_anchors": ["MONAN_JEDI_INSTALL_ROOT", "STACK_ROOT"],
+                "stack": {
+                    "env_name": "test",
+                    "env_module": "test/jedi-mpas-env/2.0.0",
+                    "site_setup": "configs/sites/tier2/jaci/setup.sh",
+                    "module_root_template": "envs/{env_name}/modules",
+                },
+                "layout": {},
+                "capabilities": {"mpas": True, "mpas_jedi": True},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     templates = tmp_path / "templates"
     template_names = {
@@ -83,6 +106,7 @@ def _config(tmp_path: Path) -> WorkflowConfig:
                 ],
             },
             "pbs": {
+                "stack_root": str(stack),
                 "bootstrap": [
                     f"pushd {stack} >/dev/null",
                     "source configs/sites/tier2/jaci/setup.sh",
@@ -101,6 +125,10 @@ def test_preflight_accepts_existing_inputs_and_creatable_work_dirs(tmp_path: Pat
     checks = {item["name"]: item for item in report["checks"]}
 
     assert checks["software.monan_jedi_install_root"]["status"] == "OK"
+    assert checks["software.runtime_contract_v2"]["status"] == "OK"
+    assert checks["pbs.stack_root"]["status"] == "OK"
+    assert checks["stack.site_setup"]["status"] == "OK"
+    assert checks["stack.module_root"]["status"] == "OK"
     assert checks["static.source"]["status"] == "OK"
     assert checks["static.links[2].source"]["status"] == "OK"
     assert checks["paths.work_dir"]["status"] == "CREATABLE"

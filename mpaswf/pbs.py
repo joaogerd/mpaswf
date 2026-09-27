@@ -12,6 +12,7 @@ from typing import Mapping
 
 from .config import WorkflowConfig, render, resolve_path, string, value
 from .files import ensure_directory
+from .software import monan_jedi_root, runtime_contract
 from .ui import Spinner, status
 
 
@@ -58,26 +59,70 @@ def _configured_shell_lines(raw: object, label: str) -> list[str]:
     return list(raw)
 
 
-def _append_pbs_runtime_setup(lines: list[str], pbs: Mapping[str, object]) -> None:
-    """Append the explicitly configured compute-node runtime bootstrap.
+def _append_pbs_runtime_setup(
+    lines: list[str],
+    config: WorkflowConfig,
+    pbs: Mapping[str, object],
+) -> None:
+    """Append the standard compute-node runtime bootstrap.
 
-    ``pbs.bootstrap`` is intended for site/runtime initialization that must run
-    before MPI is invoked, for example loading the exact spack-stack/JEDI module
-    hierarchy on JACI. ``pbs.modules`` is retained for backwards compatibility
-    with older configurations that only needed direct module-load statements.
+    Stack identity comes from the MONAN-JEDI installed runtime contract. The
+    platform YAML selects only STACK_ROOT and optional site module paths; it no
+    longer duplicates the environment name, module name or site setup script.
     """
     stack_root = pbs.get("stack_root")
     if stack_root is not None:
         if not isinstance(stack_root, str) or not stack_root.strip():
             raise ValueError("pbs.stack_root must be a non-empty string when configured.")
+
+        install_root = monan_jedi_root(config)
+        if install_root is None:
+            raise ValueError(
+                "pbs.stack_root requires software.monan_jedi_install_root so the "
+                "installed ecosystem runtime contract can be loaded."
+            )
+        contract = runtime_contract(config)
+        module_root = contract.module_root(Path(stack_root))
+
+        lines.append(f"export MONAN_JEDI_INSTALL_ROOT={shlex.quote(str(install_root))}")
         lines.append(f"export STACK_ROOT={shlex.quote(stack_root)}")
+        lines.append("module purge")
+
+        site_module_paths = pbs.get("site_module_paths", [])
+        if site_module_paths is None:
+            site_module_paths = []
+        if not isinstance(site_module_paths, list) or not all(
+            isinstance(item, str) and item.strip() for item in site_module_paths
+        ):
+            raise ValueError("pbs.site_module_paths must be a list of non-empty strings.")
+        for path in site_module_paths:
+            quoted = shlex.quote(path)
+            lines.append(f"[[ -d {quoted} ]] && module use {quoted}")
+
+        lines.extend(
+            [
+                'monan_had_nounset=0; case "$-" in *u*) monan_had_nounset=1 ;; esac',
+                "set +u",
+                f"pushd {shlex.quote(stack_root)} >/dev/null",
+                f"source {shlex.quote(contract.stack_site_setup)}",
+                "popd >/dev/null",
+                'if [[ "${monan_had_nounset}" == "1" ]]; then set -u; else set +u; fi',
+                "unset monan_had_nounset",
+                f"module use {shlex.quote(str(module_root))}",
+                f"module load {shlex.quote(contract.stack_env_module)}",
+            ]
+        )
+
+    # Extra commands remain available for application/site-specific additions,
+    # but normal JACI configuration does not repeat the standard stack bootstrap.
     lines.extend(_configured_shell_lines(pbs.get("bootstrap"), "pbs.bootstrap"))
     lines.extend(_configured_shell_lines(pbs.get("modules"), "pbs.modules"))
+
     environment = pbs.get("environment", {})
     if not isinstance(environment, Mapping):
         raise ValueError("pbs.environment must be a mapping.")
     for key, item in environment.items():
-        lines.append(f"export {key}={item}")
+        lines.append(f"export {key}={shlex.quote(str(item))}")
 
 
 def _append_pbs_placement(lines: list[str], pbs: Mapping[str, object]) -> None:
@@ -136,7 +181,7 @@ def render_pbs_job(
             "ulimit -s unlimited",
         ]
     )
-    _append_pbs_runtime_setup(lines, pbs)
+    _append_pbs_runtime_setup(lines, config, pbs)
     lines.append(" ".join(shlex.quote(part) for part in command))
     filename = script_name or f"qsub_{job_name}.pbs"
     if Path(filename).name != filename:
@@ -272,7 +317,7 @@ def run_pbs_smoke(config: WorkflowConfig) -> Path:
             "ulimit -s unlimited",
         ]
     )
-    _append_pbs_runtime_setup(lines, pbs)
+    _append_pbs_runtime_setup(lines, config, pbs)
     lines.extend(
         [
             'echo "MPASWF PBS smoke: compute node $(hostname)"',

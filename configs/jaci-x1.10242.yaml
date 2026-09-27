@@ -163,23 +163,22 @@ pbs:
   # This is configuration, not a deferred PBS variable.
   stack_root: ${STACK_ROOT}
 
-  # Literal shell commands executed on the PBS compute node before MPI starts.
-  # Use this block for site/module hierarchy initialization that must be repeated
-  # inside every submitted job. STACK_ROOT is expanded from the caller's
-  # environment, so users can select a validated spack-stack checkout without
-  # editing this YAML. A legacy pbs.modules list is also supported.
-  bootstrap:
-    - "module --force purge 2>/dev/null || module purge"
-    - "module use /opt/cray/pe/modulefiles"
-    - "module use /opt/cray/modulefiles"
-    - "module use /opt/cray/pe/craype-targets/default/modulefiles"
-    - "module use /p/app/modulefiles"
-    - "module use /opt/cray/pals/modulefiles"
-    - "pushd ${STACK_ROOT} >/dev/null"
-    - "source configs/sites/tier2/jaci/setup.sh"
-    - "popd >/dev/null"
-    - "module use ${STACK_ROOT}/envs/jaci-mpas-jedi-gcc12-craympich/modules"
-    - "module load cray-mpich/8.1.31/none/none/jedi-mpas-env/1.0.0"
+  # Site module paths required before the spack-stack site setup is sourced.
+  # Stack environment name, module name and site-setup path are NOT duplicated
+  # here: MPASWF reads them from
+  #   ${MONAN_JEDI_INSTALL_ROOT}/share/monan-jedi/install-manifest.json
+  # (ecosystem contract v2).
+  site_module_paths:
+    - /opt/cray/pe/modulefiles
+    - /opt/cray/modulefiles
+    - /opt/cray/pe/craype-targets/default/modulefiles
+    - /p/app/modulefiles
+    - /opt/cray/pals/modulefiles
+
+  # Optional extra compute-node commands executed only after the standard
+  # runtime contract bootstrap. Normal JACI operation needs no additional
+  # commands here.
+  bootstrap: []
 
   # Environment variables exported in every PBS job after bootstrap/modules and
   # before the MPI launcher is executed.

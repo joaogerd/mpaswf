@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from mpaswf.config import WorkflowConfig
@@ -23,14 +24,32 @@ def test_wait_message_matches_bmatrix_live_status() -> None:
 
 def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     """Rendered PBS files keep the informative stage-specific submission name."""
-    bootstrap = [
-        "module --force purge 2>/dev/null || module purge",
-        "module use /stack/modules",
-        "module load jedi-mpas-env/1.0.0",
-    ]
+    install_root = tmp_path / "install"
+    manifest = install_root / "share" / "monan-jedi" / "install-manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ecosystem_contract_version": 2,
+                "contract": "monan-jedi-runtime-v2",
+                "public_anchors": ["MONAN_JEDI_INSTALL_ROOT", "STACK_ROOT"],
+                "stack": {
+                    "env_name": "jaci-test",
+                    "env_module": "cray-mpich/test/jedi-mpas-env/2.0.0",
+                    "site_setup": "configs/sites/test/setup.sh",
+                    "module_root_template": "envs/{env_name}/modules",
+                },
+                "layout": {},
+                "capabilities": {"mpas": True, "mpas_jedi": True},
+            }
+        ),
+        encoding="utf-8",
+    )
     config = WorkflowConfig(
         path=tmp_path / "config.yaml",
         data={
+            "software": {"monan_jedi_install_root": str(install_root)},
             "pbs": {
                 "queue": "pesqmini",
                 "select": 1,
@@ -39,10 +58,10 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                 "place": "excl",
                 "launcher": ["mpiexec", "-n", "{mpi_ranks}"],
                 "stack_root": "/runtime/spack-stack",
-                "bootstrap": bootstrap,
+                "bootstrap": [],
                 "modules": [],
                 "environment": {"OMP_NUM_THREADS": "1"},
-            }
+            },
         },
     )
     executable = tmp_path / "mpas_init_atmosphere"
@@ -64,10 +83,12 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     assert "#PBS -N mpasinit_2018041500" in rendered
     assert "#PBS -l place=excl" in rendered
     assert "umask 002" in rendered
-    assert "module load jedi-mpas-env/1.0.0" in rendered
+    assert "module load cray-mpich/test/jedi-mpas-env/2.0.0" in rendered
     assert "export STACK_ROOT=/runtime/spack-stack" in rendered
-    assert rendered.index("export STACK_ROOT=/runtime/spack-stack") < rendered.index(bootstrap[0])
+    assert rendered.index("export STACK_ROOT=/runtime/spack-stack") < rendered.index("module purge")
+    assert "source configs/sites/test/setup.sh" in rendered
+    assert "module use /runtime/spack-stack/envs/jaci-test/modules" in rendered
+    assert "set +u" in rendered
     assert "export OMP_NUM_THREADS=1" in rendered
     assert "mpiexec -n 128" in rendered
-    assert rendered.index(bootstrap[0]) < rendered.index("mpiexec -n 128")
-    assert rendered.index(bootstrap[-1]) < rendered.index("mpiexec -n 128")
+    assert rendered.index("module load cray-mpich/test/jedi-mpas-env/2.0.0") < rendered.index("mpiexec -n 128")
