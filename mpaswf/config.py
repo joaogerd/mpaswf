@@ -1,4 +1,6 @@
-"""Configuration loading, validation, and template rendering helpers.\n\nEcosystem runtime anchors are resolved explicitly from YAML.
+"""Configuration loading, validation, and template rendering helpers.
+
+Ecosystem runtime anchors are resolved explicitly from YAML.
 
 MPASWF accepts two equivalent configuration layouts:
 
