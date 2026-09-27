@@ -229,9 +229,12 @@ before loading or running the configuration:
 export STACK_ROOT=/path/to/validated/spack-stack
 ```
 
-The JACI `pbs.bootstrap` commands reference `${STACK_ROOT}`. This keeps the
-selected dependency stack outside the versioned YAML, and `mpaswf check-config`
-will report `UNRESOLVED_ENV` when it is missing.
+The JACI platform binds `pbs.stack_root` to `${STACK_ROOT}`. MPASWF reads
+`ecosystem_contract_version: 2` from the selected MONAN-JEDI installation and
+derives the compatible stack environment name, generated module name, site
+setup path and module-tree layout. Those values are not duplicated in this
+repository. `mpaswf check-config` validates the manifest, selected stack,
+site setup and derived module tree before submission.
 
 When the backend is PBS, configure queue/resources/launcher, compute-node runtime
 bootstrap and stage walltimes. The x1.10242 JACI case uses a partition matching
@@ -256,13 +259,17 @@ modules
 environment
 ```
 
-`pbs.bootstrap` is an ordered list of literal shell commands executed inside
-every PBS job before `pbs.modules`, environment exports and the MPI launcher.
-Use it for site/runtime initialization that cannot be represented by a simple
-`module load`, such as exposing and loading the validated spack-stack/JEDI module
-hierarchy on JACI. The same bootstrap is used by `pbs-smoke`, initialization and
-forecast jobs, so the smoke test exercises the actual runtime environment rather
-than only scheduler submission.
+When `pbs.stack_root` is configured, MPASWF emits the standard stack bootstrap
+itself: export both public anchors, load stack identity from the installed
+runtime contract, purge modules, expose any `pbs.site_module_paths`, protect
+the site setup from Bash `nounset`, load the derived module tree and only then
+apply job-local environment variables.
+
+`pbs.bootstrap` remains an optional list of extra shell commands after that
+standard bootstrap. Maintained JACI configuration keeps it empty. The same
+standard path is used by `pbs-smoke`, initialization and forecast jobs, so the
+smoke test exercises the actual runtime environment rather than only scheduler
+submission.
 
 The MONAN-JEDI installation root and the external stack remain separate
 contracts:
@@ -334,11 +341,12 @@ Environment variables in ordinary configuration strings are expanded before vali
 Any unresolved `${VARIABLE}` reference needed by MPASWF itself is a configuration error
 and fails before filesystem work begins.
 
-PBS shell bodies are intentionally different: `pbs.bootstrap`, `pbs.modules`, and
-`pbs.environment.*` are deferred shell content and may reference variables such as
-`${PBS_JOBID}` or `${PBS_O_WORKDIR}` that exist only on the compute node.
-The selected spack-stack is not deferred: bind it through `pbs.stack_root:
-${STACK_ROOT}`; the renderer embeds `export STACK_ROOT=...` before bootstrap commands.
+PBS shell bodies are intentionally different: `pbs.bootstrap`, `pbs.modules`
+and `pbs.environment.*` remain literal while configuration is loaded. They may
+reference variables such as `${PBS_JOBID}` or `${PBS_O_WORKDIR}` that exist
+only on the compute node; even a same-named variable in the login shell must not
+replace them. The selected stack is configuration-time input: bind it through
+`pbs.stack_root: ${STACK_ROOT}`.
 
 For JACI,
 `$USER` supplies user-specific storage roots and `STACK_ROOT` selects the
