@@ -8,7 +8,7 @@ from pathlib import Path
 import shlex
 from typing import Iterable
 
-from .config import WorkflowConfig, render, resolve_path, string, value
+from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value
 from .forecast import (
     REFERENCE_NAMELIST_FILE,
     REFERENCE_PHYSICS_FILES,
@@ -339,21 +339,43 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
 
         stack_root_raw = string(config, "pbs.stack_root", required=False, default=None)
         if stack_root_raw is not None and contract_path.is_file():
-            contract = runtime_contract(config)
             stack_root = Path(stack_root_raw).expanduser()
             checks.append(_required_dir("pbs.stack_root", stack_root))
-            checks.append(
-                _required_file(
-                    "stack.site_setup",
-                    stack_root / contract.stack_site_setup,
+            try:
+                contract = runtime_contract(config)
+            except ConfigurationError as error:
+                checks.append(
+                    ResourceCheck(
+                        "software.runtime_contract_v2",
+                        contract_path,
+                        "ecosystem contract v2",
+                        "INVALID",
+                        False,
+                        str(error),
+                    )
                 )
-            )
-            checks.append(
-                _required_dir(
-                    "stack.module_root",
-                    contract.module_root(stack_root),
+            else:
+                checks.append(
+                    ResourceCheck(
+                        "software.runtime_contract_v2",
+                        contract_path,
+                        "ecosystem contract v2",
+                        "OK",
+                        True,
+                    )
                 )
-            )
+                checks.append(
+                    _required_file(
+                        "stack.site_setup",
+                        stack_root / contract.stack_site_setup,
+                    )
+                )
+                checks.append(
+                    _required_dir(
+                        "stack.module_root",
+                        contract.module_root(stack_root),
+                    )
+                )
 
             site_module_paths = value(
                 config, "pbs.site_module_paths", required=False, default=[]
