@@ -101,7 +101,8 @@ def test_legacy_monan_jedi_root_key_remains_accepted() -> None:
         assert monan_jedi_root(config) == Path("/legacy/install")
 
 
-def test_deferred_pbs_shell_variable_does_not_fail_config_loading(tmp_path) -> None:
+def test_deferred_pbs_shell_variable_does_not_fail_config_loading(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PBS_O_WORKDIR", "/wrong/login/value")
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -152,3 +153,4 @@ pbs:
 
     config = load_config(config_path)
     assert value(config, "pbs.bootstrap")[0] == 'cd "$PBS_O_WORKDIR"'
+    assert "/wrong/login/value" not in value(config, "pbs.bootstrap")[0]
