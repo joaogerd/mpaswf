@@ -32,12 +32,17 @@ class RuntimeContract:
     stack_env_name: str
     stack_env_module: str
     stack_site_setup: str
-    module_root_path: str
+    module_root_template: str
     capabilities: dict[str, bool]
 
     def module_root(self, stack_root: Path) -> Path:
-        candidate = Path(self.module_root_path).expanduser()
-        return candidate if candidate.is_absolute() else stack_root / candidate
+        relative = self.module_root_template.format(env_name=self.stack_env_name)
+        candidate = Path(relative).expanduser()
+        if candidate.is_absolute():
+            raise ConfigurationError(
+                "Runtime contract stack.module_root_template must be relative to STACK_ROOT."
+            )
+        return stack_root / candidate
 
 
 def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
@@ -58,8 +63,6 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
         raise ConfigurationError("MONAN-JEDI runtime contract root must be a JSON object.")
     if payload.get("schema_version") != 2:
         raise ConfigurationError("MONAN-JEDI runtime contract schema_version must be 2.")
-    if payload.get("schema_version") != 2:
-        raise ConfigurationError("MONAN-JEDI runtime contract schema_version must be 2.")
     if payload.get("ecosystem_contract_version") != 2:
         raise ConfigurationError(
             "MONAN-JEDI installation does not provide ecosystem contract v2; "
@@ -73,13 +76,19 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
     stack = payload.get("stack")
     if not isinstance(stack, dict):
         raise ConfigurationError("Runtime contract stack block is missing.")
-    for key in ("env_name", "env_module", "site_setup", "module_root"):
+    for key in ("env_name", "env_module", "site_setup", "module_root_template"):
         if not isinstance(stack.get(key), str) or not stack[key]:
             raise ConfigurationError(f"Runtime contract stack.{key} must be a non-empty string.")
-    if "{" in stack["module_root"] or "}" in stack["module_root"]:
-        raise ConfigurationError("Runtime contract stack.module_root must be a concrete path.")
     if Path(stack["site_setup"]).is_absolute():
         raise ConfigurationError("Runtime contract stack.site_setup must be relative to STACK_ROOT.")
+    if Path(stack["module_root_template"]).is_absolute():
+        raise ConfigurationError(
+            "Runtime contract stack.module_root_template must be relative to STACK_ROOT."
+        )
+    if "{env_name}" not in stack["module_root_template"]:
+        raise ConfigurationError(
+            "Runtime contract stack.module_root_template must contain {env_name}."
+        )
 
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, dict) or not all(
@@ -93,7 +102,7 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
         stack_env_name=stack["env_name"],
         stack_env_module=stack["env_module"],
         stack_site_setup=stack["site_setup"],
-        module_root_path=stack["module_root"],
+        module_root_template=stack["module_root_template"],
         capabilities=dict(capabilities),
     )
 
