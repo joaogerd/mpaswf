@@ -38,7 +38,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                     "env_name": "jaci-test",
                     "env_module": "cray-mpich/test/jedi-mpas-env/2.0.0",
                     "site_setup": "configs/sites/test/setup.sh",
-                    "module_root": "envs/jaci-test/modules",
+                    "module_root_template": "envs/{env_name}/modules",
                 },
                 "layout": {},
                 "capabilities": {"mpas": True, "mpas_jedi": True},
