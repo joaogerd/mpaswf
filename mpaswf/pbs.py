@@ -59,6 +59,17 @@ def _configured_shell_lines(raw: object, label: str) -> list[str]:
     return list(raw)
 
 
+def _shell_environment_value(value: object, label: str) -> str:
+    """Quote one environment value while preserving compute-node parameter expansion."""
+    raw = str(value)
+    if "$(" in raw or "`" in raw:
+        raise ValueError(
+            f"{label} may contain shell parameter expansion but not command substitution."
+        )
+    escaped = raw.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def _append_pbs_runtime_setup(
     lines: list[str],
     config: WorkflowConfig,
@@ -122,7 +133,9 @@ def _append_pbs_runtime_setup(
     if not isinstance(environment, Mapping):
         raise ValueError("pbs.environment must be a mapping.")
     for key, item in environment.items():
-        lines.append(f"export {key}={shlex.quote(str(item))}")
+        lines.append(
+            f"export {key}={_shell_environment_value(item, f'pbs.environment.{key}')}"
+        )
 
 
 def _append_pbs_placement(lines: list[str], pbs: Mapping[str, object]) -> None:
