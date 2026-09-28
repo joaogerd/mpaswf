@@ -38,7 +38,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                     "env_name": "jaci-test",
                     "env_module": "cray-mpich/test/jedi-mpas-env/2.0.0",
                     "site_setup": "configs/sites/test/setup.sh",
-                    "module_root_template": "envs/{env_name}/modules",
+                    "module_root": "envs/jaci-test/modules",
                 },
                 "layout": {},
                 "capabilities": {"mpas": True, "mpas_jedi": True},
@@ -60,7 +60,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
                 "stack_root": "/runtime/spack-stack",
                 "bootstrap": [],
                 "modules": [],
-                "environment": {"OMP_NUM_THREADS": "1"},
+                "environment": {"OMP_NUM_THREADS": "1", "CASE_OUT": "${PBS_O_WORKDIR}/out"},
             },
         },
     )
@@ -89,6 +89,7 @@ def test_render_pbs_job_uses_explicit_stage_filename(tmp_path: Path) -> None:
     assert "source configs/sites/test/setup.sh" in rendered
     assert "module use /runtime/spack-stack/envs/jaci-test/modules" in rendered
     assert "set +u" in rendered
-    assert "export OMP_NUM_THREADS=1" in rendered
+    assert 'export OMP_NUM_THREADS="1"' in rendered
+    assert 'export CASE_OUT="${PBS_O_WORKDIR}/out"' in rendered
     assert "mpiexec -n 128" in rendered
     assert rendered.index("module load cray-mpich/test/jedi-mpas-env/2.0.0") < rendered.index("mpiexec -n 128")
