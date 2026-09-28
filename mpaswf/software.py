@@ -32,11 +32,12 @@ class RuntimeContract:
     stack_env_name: str
     stack_env_module: str
     stack_site_setup: str
-    module_root_template: str
+    module_root_path: str
     capabilities: dict[str, bool]
 
     def module_root(self, stack_root: Path) -> Path:
-        return stack_root / self.module_root_template.format(env_name=self.stack_env_name)
+        candidate = Path(self.module_root_path).expanduser()
+        return candidate if candidate.is_absolute() else stack_root / candidate
 
 
 def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
@@ -70,9 +71,13 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
     stack = payload.get("stack")
     if not isinstance(stack, dict):
         raise ConfigurationError("Runtime contract stack block is missing.")
-    for key in ("env_name", "env_module", "site_setup", "module_root_template"):
+    for key in ("env_name", "env_module", "site_setup", "module_root"):
         if not isinstance(stack.get(key), str) or not stack[key]:
             raise ConfigurationError(f"Runtime contract stack.{key} must be a non-empty string.")
+    if "{" in stack["module_root"] or "}" in stack["module_root"]:
+        raise ConfigurationError("Runtime contract stack.module_root must be a concrete path.")
+    if Path(stack["site_setup"]).is_absolute():
+        raise ConfigurationError("Runtime contract stack.site_setup must be relative to STACK_ROOT.")
 
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, dict) or not all(
@@ -86,7 +91,7 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
         stack_env_name=stack["env_name"],
         stack_env_module=stack["env_module"],
         stack_site_setup=stack["site_setup"],
-        module_root_template=stack["module_root_template"],
+        module_root_path=stack["module_root"],
         capabilities=dict(capabilities),
     )
 
