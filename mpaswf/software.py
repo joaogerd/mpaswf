@@ -55,6 +55,8 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
         raise ConfigurationError(f"Invalid MONAN-JEDI runtime contract: {path}: {error}") from error
     if not isinstance(payload, dict):
         raise ConfigurationError("MONAN-JEDI runtime contract root must be a JSON object.")
+    if payload.get("schema_version") != 2:
+        raise ConfigurationError("MONAN-JEDI runtime contract schema_version must be 2.")
     if payload.get("ecosystem_contract_version") != 2:
         raise ConfigurationError(
             "MONAN-JEDI installation does not provide ecosystem contract v2; "
