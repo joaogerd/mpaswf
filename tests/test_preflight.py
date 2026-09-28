@@ -43,7 +43,7 @@ def _config(tmp_path: Path) -> WorkflowConfig:
                     "env_name": "test",
                     "env_module": "test/jedi-mpas-env/2.0.0",
                     "site_setup": "configs/sites/tier2/jaci/setup.sh",
-                    "module_root": "envs/test/modules",
+                    "module_root_template": "envs/{env_name}/modules",
                 },
                 "layout": {},
                 "capabilities": {"mpas": True, "mpas_jedi": True},
