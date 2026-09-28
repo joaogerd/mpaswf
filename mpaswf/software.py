@@ -55,6 +55,8 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
         raise ConfigurationError(f"Invalid MONAN-JEDI runtime contract: {path}: {error}") from error
     if not isinstance(payload, dict):
         raise ConfigurationError("MONAN-JEDI runtime contract root must be a JSON object.")
+    if payload.get("schema_version") != 2:
+        raise ConfigurationError("MONAN-JEDI runtime contract schema_version must be 2.")
     if payload.get("ecosystem_contract_version") != 2:
         raise ConfigurationError(
             "MONAN-JEDI installation does not provide ecosystem contract v2; "
@@ -71,6 +73,16 @@ def runtime_contract(config: WorkflowConfig) -> RuntimeContract:
     for key in ("env_name", "env_module", "site_setup", "module_root_template"):
         if not isinstance(stack.get(key), str) or not stack[key]:
             raise ConfigurationError(f"Runtime contract stack.{key} must be a non-empty string.")
+    if Path(stack["site_setup"]).is_absolute():
+        raise ConfigurationError("Runtime contract stack.site_setup must be relative to STACK_ROOT.")
+    if Path(stack["module_root_template"]).is_absolute():
+        raise ConfigurationError(
+            "Runtime contract stack.module_root_template must be relative to STACK_ROOT."
+        )
+    if "{env_name}" not in stack["module_root_template"]:
+        raise ConfigurationError(
+            "Runtime contract stack.module_root_template must contain {env_name}."
+        )
 
     capabilities = payload.get("capabilities")
     if not isinstance(capabilities, dict) or not all(
