@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -174,6 +177,31 @@ def run_manifest(config: WorkflowConfig) -> Path:
                     str(f024.restart_path),
                 ]
             )
-    _record_phase(layout, "manifest", {"manifest": str(output), "pairs": len(campaign.pairs), "state": "completed"})
-    status(f"Manifest phase: wrote {output}.")
+    # The TSV remains the data-plane interface consumed by MPAS-BMatrix.
+    # Its JSON sidecar versions the producer/consumer contract without forcing
+    # the consumer to know any mpaswf source/build/work directory convention.
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+    sidecar = output.with_suffix(".json")
+    payload = {
+        "schema_version": 1,
+        "contract": "monan-nmc-forecast-pairs-v1",
+        "producer": "mpaswf",
+        "consumer": "MPAS-BMatrix",
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "manifest": output.name,
+        "manifest_format": "tsv",
+        "manifest_sha256": digest,
+        "columns": ["valid_time", "f048_state", "f024_state", "f048_restart", "f024_restart"],
+        "pair_count": len(campaign.pairs),
+        "pair_semantics": {
+            "valid_time": "shared forecast valid time T",
+            "f048_state": "MPAS da_state initialized at T-48h and valid at T",
+            "f024_state": "MPAS da_state initialized at T-24h and valid at T",
+            "f048_restart": "validated restart product from the f048 forecast",
+            "f024_restart": "validated restart product from the f024 forecast",
+        },
+    }
+    sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    _record_phase(layout, "manifest", {"manifest": str(output), "contract": str(sidecar), "pairs": len(campaign.pairs), "state": "completed"})
+    status(f"Manifest phase: wrote {output} and contract {sidecar}.")
     return output
