@@ -171,6 +171,13 @@ with columns:
 valid_time    f048_state    f024_state    f048_restart    f024_restart
 ```
 
+The same phase also writes `mpas-forecast-manifest.json`. The TSV is the
+portable data-plane interface; the JSON sidecar identifies the versioned
+`monan-nmc-forecast-pairs-v1` contract, producer/consumer, exact column set,
+pair semantics, pair count and SHA-256 of the TSV. Downstream tools can therefore
+reject a changed or stale hand-off before BFLOW without depending on mpaswf's
+private directory layout.
+
 ## Safe reruns
 
 Valid existing products are reused. Use `--force` only when a selected phase
