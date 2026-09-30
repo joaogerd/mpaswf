@@ -28,7 +28,7 @@ important software setting is one public MONAN-JEDI prefix:
 
 ```yaml
 software:
-  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
+  monan_jedi_install_root: /p/projetos/monan_das/$USER/build/monan-jedi
 ```
 
 From that root MPASWF derives:
@@ -52,18 +52,12 @@ The same platform file also owns:
 - local/PBS backend selection;
 - queue, CPU/MPI resources, walltimes and runtime environment.
 
-The JACI bootstrap intentionally does not contain a personal spack-stack path.
-Select the validated checkout at run time:
-
-```bash
-export STACK_ROOT=/path/to/validated/spack-stack
-```
-
-The platform binds `pbs.stack_root` to `${STACK_ROOT}`. Stack environment
-name, module name, site setup path and module root are read from the installed
-MONAN-JEDI ecosystem contract v2; they are not copied into this YAML. The
-filesystem preflight validates both the selected stack and the installed
-contract before submission.
+The JACI platform carries the validated shared spack-stack checkout as its site
+default. Stack environment name, module name, site setup path and module root are
+read from the installed MONAN-JEDI ecosystem contract v2; they are not copied
+into this YAML. A non-empty `STACK_ROOT` environment variable overrides only the
+stack root for controlled tests or migrations. The filesystem preflight validates
+both the selected stack and the installed contract before submission.
 
 ## Workflow/campaign file
 
@@ -150,7 +144,9 @@ See [docs/getting-started.md](../docs/getting-started.md) and
 
 ### PBS environment ownership
 
-The maintained JACI platform resolves `pbs.stack_root` from `${STACK_ROOT}` before
-submission. Bootstrap/module commands remain literal shell commands and may use
-scheduler-provided variables that only exist inside the PBS job. This separation keeps
-configuration errors detectable without prematurely expanding PBS runtime variables.
+The maintained JACI platform has a validated `pbs.stack_root` default before
+submission; a non-empty `STACK_ROOT` environment variable overrides it.
+Bootstrap/module commands remain literal shell commands and may use
+scheduler-provided variables that only exist inside the PBS job. This separation
+keeps configuration errors detectable without prematurely expanding PBS runtime
+variables.
