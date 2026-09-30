@@ -32,16 +32,16 @@ workflow:
 # Installed software
 # ------------------------------------------------------------------------------
 software:
-  # Public MONAN-JEDI installation prefix supplied by the ecosystem contract.
-  # Export MONAN_JEDI_INSTALL_ROOT before loading this JACI platform file.
-  # MPASWF derives runtime executables and
-  # data from this tree, notably:
+  # Default public MONAN-JEDI installation prefix for the current JACI user.
+  # A non-empty MONAN_JEDI_INSTALL_ROOT environment variable overrides this
+  # site default at configuration-load time. MPASWF derives runtime executables
+  # and data from this tree, notably:
   #   <root>/bin/mpas_init_atmosphere
   #   <root>/bin/mpas_atmosphere
   #   <root>/bin/{ungrib.exe,link_grib.csh}
   #   <root>/share/wps/Variable_Tables/
   #   <root>/share/MPAS/core_atmosphere/
-  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
+  monan_jedi_install_root: /p/projetos/monan_das/$USER/build/monan-jedi
 
 # ------------------------------------------------------------------------------
 # Site storage layout
@@ -159,9 +159,10 @@ pbs:
   # Seconds between qstat checks while waiting. Values below 1 are clamped to 1.
   poll_seconds: 30
 
-  # Resolved stack checkout exported by the renderer before bootstrap commands.
-  # This is configuration, not a deferred PBS variable.
-  stack_root: ${STACK_ROOT}
+  # Validated shared spack-stack checkout used by the maintained JACI runtime.
+  # A non-empty STACK_ROOT environment variable overrides this site default at
+  # configuration-load time for controlled stack tests/migrations.
+  stack_root: /p/projetos/monan_das/joao.gerd/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack
 
   # Site module paths required before the spack-stack site setup is sourced.
   # Stack environment name, module name and site-setup path are NOT duplicated

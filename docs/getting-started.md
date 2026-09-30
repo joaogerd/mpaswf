@@ -29,11 +29,15 @@ WPS.
 ## 2. Install MONAN-JEDI first
 
 The compiled software comes from
-`GAD-DIMNT-CPTEC/MONAN-JEDI`. The normal JACI installation root is:
+`GAD-DIMNT-CPTEC/MONAN-JEDI`. The maintained JACI configuration resolves the
+normal installation root automatically:
 
-```bash
-export MONAN_JEDI_INSTALL_ROOT=/p/projetos/monan_das/$USER/build/monan-jedi
+```text
+/p/projetos/monan_das/$USER/build/monan-jedi
 ```
+
+A non-empty `MONAN_JEDI_INSTALL_ROOT` may still be exported to select an
+alternate/test installation.
 
 The installation must expose at least:
 
@@ -111,26 +115,20 @@ CONFIG=configs/jaci-x1.10242.yaml
 
 ## 5. Check the JACI platform paths
 
-Select the validated spack-stack checkout that PBS jobs must load:
-
-```bash
-export STACK_ROOT=/path/to/validated/spack-stack
-test -f "$STACK_ROOT/configs/sites/tier2/jaci/setup.sh"
-```
-
-The shipped JACI YAML uses `${STACK_ROOT}` in `pbs.bootstrap`. This keeps the
-stack choice outside the repository and lets the preflight validate the same
-checkout that compute-node jobs will use.
-
-The shipped configuration binds the public runtime explicitly:
+The shipped JACI YAML already selects the validated shared spack-stack checkout
+and the per-user MONAN-JEDI installation. The relevant defaults are:
 
 ```yaml
 software:
-  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
+  monan_jedi_install_root: /p/projetos/monan_das/$USER/build/monan-jedi
+
+pbs:
+  stack_root: /p/projetos/monan_das/joao.gerd/work/spack-stack-inpe-overlay-20260515T181917Z/spack-stack
 ```
 
-Therefore both `MONAN_JEDI_INSTALL_ROOT` and `STACK_ROOT` must be exported before
-loading the maintained JACI configuration.
+A non-empty `MONAN_JEDI_INSTALL_ROOT` or `STACK_ROOT` environment variable
+overrides the corresponding site default. Normal JACI use requires neither
+export.
 
 It also defines writable directories such as:
 
@@ -253,10 +251,11 @@ When `gfs.url_template` is `null`, all required files must already exist.
 
 ## 9. Validate PBS/MPI first
 
-Before a real model job, make sure `STACK_ROOT` is still exported:
+Before a real model job, validate the resolved JACI defaults and then exercise
+the scheduler/runtime path:
 
 ```bash
-test -n "${STACK_ROOT:-}" || { echo "STACK_ROOT is not set"; exit 1; }
+mpaswf check-config --config "$CONFIG"
 mpaswf pbs-smoke --config "$CONFIG"
 ```
 

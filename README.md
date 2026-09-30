@@ -18,13 +18,15 @@ It does not compile MPAS/WPS and it does not run the B-matrix calibration.
 ## Software contract
 
 The normal configuration uses **one MONAN-JEDI installation root** for all
-compiled runtime software:
+compiled runtime software. On JACI, the maintained platform configuration
+derives it automatically from the current user:
 
-```bash
-export MONAN_JEDI_INSTALL_ROOT=/p/projetos/monan_das/$USER/build/monan-jedi
+```text
+/p/projetos/monan_das/$USER/build/monan-jedi
 ```
 
-`configs/jaci-x1.10242.yaml` binds `software.monan_jedi_install_root` to `${MONAN_JEDI_INSTALL_ROOT}`, so the shell and YAML resolve the same public runtime.
+A non-empty `MONAN_JEDI_INSTALL_ROOT` environment variable remains available as
+an explicit override for alternate/test installations.
 MPASWF derives the required files from it:
 
 ```text
@@ -38,11 +40,10 @@ ${MONAN_JEDI_INSTALL_ROOT}/share/wps/Variable_Tables/Vtable.GFS
 The versioned WPS source/build/release directories are private MONAN-JEDI
 implementation details. MPASWF must not point at them.
 
-The dependency environment is selected separately:
-
-```bash
-export STACK_ROOT=/path/to/validated/spack-stack
-```
+The dependency environment is selected separately. The maintained JACI
+configuration already points to the validated shared spack-stack; a non-empty
+`STACK_ROOT` environment variable may override that default for controlled
+tests or migrations.
 
 MPASWF does not duplicate the spack-stack environment name, generated JEDI
 module name, or site setup script. Those values are read from:
@@ -53,8 +54,8 @@ ${MONAN_JEDI_INSTALL_ROOT}/share/monan-jedi/install-manifest.json
 
 using `ecosystem_contract_version: 2`. This guarantees that the runtime
 installation and the module environment used on PBS compute nodes are the same
-contract. `STACK_ROOT` remains operator-selectable; the manifest describes the
-compatible environment inside that stack.
+contract. `STACK_ROOT` remains operator-selectable as an override; the manifest describes
+the compatible environment inside that stack.
 
 Historical all-in-one configs using `executables.wps_dir`,
 `executables.mpas_init`, and `executables.mpas_atmosphere` remain supported for
@@ -132,11 +133,9 @@ MPAS-BMatrix.
 
 ## First-run sequence on JACI
 
-After installing MONAN-JEDI, select the validated spack-stack checkout used by
-compute-node jobs:
+After installing MONAN-JEDI, use the maintained JACI defaults directly:
 
 ```bash
-export STACK_ROOT=/path/to/validated/spack-stack
 CONFIG=configs/jaci-x1.10242.yaml
 
 # Resolve $USER and validate software, templates, invariant, mesh/partition,

@@ -33,12 +33,15 @@ over it. Relative paths are resolved from the platform configuration directory.
 ### `software.monan_jedi_install_root`
 
 Canonical public installation prefix produced by MONAN-JEDI. The maintained JACI
-configuration binds this key explicitly to `${MONAN_JEDI_INSTALL_ROOT}`.
+configuration provides the user-specific default directly:
 
 ```yaml
 software:
-  monan_jedi_install_root: ${MONAN_JEDI_INSTALL_ROOT}
+  monan_jedi_install_root: /p/projetos/monan_das/$USER/build/monan-jedi
 ```
+
+A non-empty `MONAN_JEDI_INSTALL_ROOT` environment variable overrides this value
+at configuration-load time.
 
 MPASWF derives:
 
@@ -222,14 +225,11 @@ Supported values are `local` and `pbs`.
 
 ## `pbs`
 
-For the maintained JACI configuration, export the validated spack-stack checkout
-before loading or running the configuration:
+For the maintained JACI configuration, `pbs.stack_root` already points to the
+validated shared spack-stack checkout. A non-empty `STACK_ROOT` environment
+variable overrides that site default for controlled tests or migrations.
 
-```bash
-export STACK_ROOT=/path/to/validated/spack-stack
-```
-
-The JACI platform binds `pbs.stack_root` to `${STACK_ROOT}`. MPASWF reads
+MPASWF reads
 `ecosystem_contract_version: 2` from the selected MONAN-JEDI installation and
 derives the compatible stack environment name, generated module name, site
 setup path and module-tree layout. Those values are not duplicated in this
@@ -345,13 +345,16 @@ PBS shell bodies are intentionally different: `pbs.bootstrap`, `pbs.modules`
 and `pbs.environment.*` remain literal while configuration is loaded. They may
 reference variables such as `${PBS_JOBID}` or `${PBS_O_WORKDIR}` that exist
 only on the compute node; even a same-named variable in the login shell must not
-replace them. The selected stack is configuration-time input: bind it through
-`pbs.stack_root: ${STACK_ROOT}`.
+replace them. The selected stack is configuration-time input. The maintained JACI YAML carries
+the validated site default, while `STACK_ROOT` remains an explicit environment
+override.
 
-For JACI,
-`$USER` supplies user-specific storage roots and `STACK_ROOT` selects the
-spack-stack checkout used by PBS bootstrap commands. Export `STACK_ROOT` before
-running `check-config`, `pbs-smoke`, `init`, or `forecast`.
+For JACI, `$USER` supplies user-specific storage roots, including the default
+MONAN-JEDI installation. The maintained YAML also selects the validated shared
+spack-stack. Users normally need no runtime-anchor exports before
+`check-config`, `pbs-smoke`, `init`, or `forecast`; non-empty
+`MONAN_JEDI_INSTALL_ROOT` and `STACK_ROOT` values act only as explicit
+overrides.
 
 ## Path ownership rule
 

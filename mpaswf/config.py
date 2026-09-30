@@ -1,6 +1,7 @@
 """Configuration loading, validation, and template rendering helpers.
 
-Ecosystem runtime anchors are resolved explicitly from YAML.
+Ecosystem runtime anchors use site defaults from YAML and may be overridden
+by non-empty environment variables.
 
 MPASWF accepts two equivalent configuration layouts:
 
@@ -32,6 +33,10 @@ class ConfigurationError(ValueError):
 
 _ENV_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 _DEFERRED_SHELL_PREFIXES = ("pbs.bootstrap[", "pbs.modules[", "pbs.environment.")
+_RUNTIME_ANCHOR_OVERRIDES = (
+    ("MONAN_JEDI_INSTALL_ROOT", "software", "monan_jedi_install_root"),
+    ("STACK_ROOT", "pbs", "stack_root"),
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,27 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
             result[key] = deepcopy(item)
     return result
 
+
+def _apply_runtime_anchor_overrides(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply explicit shell overrides to runtime anchors already declared by YAML.
+
+    Site configurations remain self-contained and runnable with their documented
+    defaults. A non-empty MONAN_JEDI_INSTALL_ROOT or STACK_ROOT overrides only
+    the corresponding declared key; legacy/self-contained configurations that do
+    not declare that anchor are left untouched.
+    """
+    result = deepcopy(dict(data))
+    for env_name, section_name, key in _RUNTIME_ANCHOR_OVERRIDES:
+        raw = os.environ.get(env_name)
+        if raw is None or not raw.strip():
+            continue
+        section = result.get(section_name)
+        if not isinstance(section, Mapping) or key not in section:
+            continue
+        updated = dict(section)
+        updated[key] = raw
+        result[section_name] = updated
+    return result
 
 def _expand_env(item: Any, path: str = "") -> Any:
     """Expand configuration-time environment variables without touching PBS shell.
@@ -185,6 +211,7 @@ def load_config(path: Path) -> WorkflowConfig:
         # diagnostics without changing any existing configuration key.
         merged["workflow_contract_path"] = str(contract_path)
 
+    merged = _apply_runtime_anchor_overrides(merged)
     _validate_environment_expansion(merged)
     config = WorkflowConfig(path=platform_path, data=merged)
     validate_config(config)
