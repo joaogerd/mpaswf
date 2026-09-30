@@ -36,6 +36,24 @@ def test_split_configuration_loads_and_deep_merges(monkeypatch) -> None:
     assert config.data["workflow_contract_path"].endswith("configs/mpas-x1.10242.yaml")
 
 
+def test_jaci_configuration_uses_site_defaults_without_runtime_exports(monkeypatch) -> None:
+    """Maintained JACI config is runnable without manual runtime-anchor exports."""
+    monkeypatch.setenv("USER", "liviany.viana")
+    monkeypatch.delenv("MONAN_JEDI_INSTALL_ROOT", raising=False)
+    monkeypatch.delenv("STACK_ROOT", raising=False)
+    root = Path(__file__).resolve().parents[1]
+
+    config = load_config(root / "configs" / "jaci-x1.10242.yaml")
+
+    assert value(config, "software.monan_jedi_install_root") == (
+        "/p/projetos/monan_das/liviany.viana/build/monan-jedi"
+    )
+    assert value(config, "pbs.stack_root") == (
+        "/p/projetos/monan_das/joao.gerd/work/"
+        "spack-stack-inpe-overlay-20260515T181917Z/spack-stack"
+    )
+
+
 def test_legacy_all_in_one_configuration_remains_supported() -> None:
     """The historical examples/config.yaml contract remains loadable unchanged."""
     root = Path(__file__).resolve().parents[1]
