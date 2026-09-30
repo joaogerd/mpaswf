@@ -1,6 +1,6 @@
 """Configuration loading, validation, and template rendering helpers.
 
-Ecosystem runtime anchors are resolved explicitly from YAML.
+Ecosystem runtime anchors use site defaults from YAML and may be overridden\nby non-empty environment variables.
 
 MPASWF accepts two equivalent configuration layouts:
 
