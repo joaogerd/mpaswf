@@ -201,7 +201,7 @@ def run_manifest(config: WorkflowConfig) -> Path:
             "f024_restart": "validated restart product from the f024 forecast",
         },
     }
-    sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     _record_phase(layout, "manifest", {"manifest": str(output), "contract": str(sidecar), "pairs": len(campaign.pairs), "state": "completed"})
     status(f"Manifest phase: wrote {output} and contract {sidecar}.")
     return output

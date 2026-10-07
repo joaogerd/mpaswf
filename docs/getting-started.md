@@ -314,6 +314,30 @@ The final hand-off is:
 <work_dir>/products/mpas-forecast-manifest.tsv
 ```
 
+MPASWF also writes `mpas-forecast-manifest.json`, a valid JSON sidecar binding
+the column schema and pair count to the TSV's SHA-256. Validate it with:
+
+```bash
+python -m json.tool /path/to/work/products/mpas-forecast-manifest.json
+```
+
+After updating from a revision that wrote an invalid trailing literal `\\n`,
+rerun only `mpaswf run --phase manifest --config "$CONFIG"` to regenerate both
+files from the existing forecasts. This phase does not submit MPAS jobs.
+
+The native immutable MPAS `da_state` stream supplies `mpasout` without cell
+coordinates. MPASWF file/log validation does not prove compatibility with all
+BMatrix scientific fields. Before BFLOW, use the corrected BMatrix preflight:
+
+```bash
+mpas-bmatrix check-manifest --config /path/to/bmatrix-config.yaml \
+  --manifest /path/to/work/products/mpas-forecast-manifest.tsv
+```
+
+For states without coordinates, BMatrix verifies cell counts against the
+configured grid and reports that state geometry was not independently verified.
+Keep the producer campaign and consumer case on the same mesh and cell ordering.
+
 ## 11. Safe reruns
 
 Existing valid outputs are reused. `--force` deliberately regenerates the
