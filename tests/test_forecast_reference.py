@@ -12,6 +12,7 @@ def _config() -> WorkflowConfig:
     return WorkflowConfig(
         path=Path("/tmp/configs/reference.yaml"),
         data={
+            "mesh": {"name": "x1.10242"},
             "runtime": {"config_dt": 60, "output_interval": "24:00:00"},
             "pbs": {
                 "walltime_forecast": "03:00:00",
@@ -95,3 +96,4 @@ def test_reference_forecast_uses_lead_specific_walltime() -> None:
     config = _config()
     assert _forecast_walltime(config, 24) == "01:00:00"
     assert _forecast_walltime(config, 48) == "02:00:00"
+

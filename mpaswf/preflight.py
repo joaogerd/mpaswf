@@ -10,10 +10,8 @@ from typing import Iterable
 
 from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value
 from .forecast import (
-    REFERENCE_NAMELIST_FILE,
-    REFERENCE_PHYSICS_FILES,
-    REFERENCE_STREAM_LISTS,
-    REFERENCE_STREAMS_FILE,
+    forecast_sources, stream_list_directory, stream_lists,
+    physics_files,
 )
 from .layout import Layout
 from .software import (
@@ -229,8 +227,7 @@ def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[Resourc
             name = string(config, key) or ""
             yield _required_file(key, layout.templates_dir / name)
 
-    # The strict x1.10242/JACI reference forecast stages the proven tutorial
-    # namelist/streams instead of the generic forecast templates.
+    # The strict forecast stages its explicitly configured source files.
     reference_forecast = bool(
         value(
             config,
@@ -264,39 +261,17 @@ def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceC
             default=False,
         )
     )
-    tutorial_files = string(
-        config,
-        "static.tutorial_physics_files",
-        required=False,
-        default=None,
-    )
-    if tutorial_files is None and reference_forecast:
-        yield ResourceCheck(
-            "static.tutorial_physics_files",
-            Path("<not configured>"),
-            "configured directory",
-            "NOT_CONFIGURED",
-            False,
-            "Required when validation.require_reference_preflight is true.",
-        )
-    elif tutorial_files is not None:
-        tutorial_dir = resolve_path(config, tutorial_files)
-        yield _required_dir("static.tutorial_physics_files", tutorial_dir)
-
-        if reference_forecast:
-            yield _required_file(
-                "reference.forecast_namelist",
-                tutorial_dir / REFERENCE_NAMELIST_FILE,
-            )
-            yield _required_file(
-                "reference.forecast_streams",
-                tutorial_dir / REFERENCE_STREAMS_FILE,
-            )
-            for name in REFERENCE_STREAM_LISTS:
-                yield _required_file(
-                    f"reference.{name}",
-                    tutorial_dir / name,
-                )
+    if reference_forecast:
+        try:
+            nml, xml = forecast_sources(config)
+            directory = stream_list_directory(config)
+            yield _required_file("reference.forecast_namelist", nml)
+            yield _required_file("reference.forecast_streams", xml)
+            for name in stream_lists(config):
+                yield _required_file(f"reference.{name}", directory / name)
+        except (ValueError, FileNotFoundError) as error:
+            yield ResourceCheck("runtime.forecast_sources", Path("<not configured>"),
+                                "configured forecast sources", "NOT_CONFIGURED", False, str(error))
 
     links = value(config, "static.links", required=False, default=[])
     if not isinstance(links, list):
@@ -433,7 +408,7 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
             default=False,
         )
     ):
-        for name in REFERENCE_PHYSICS_FILES:
+        for name in physics_files(config):
             checks.append(
                 _required_file(
                     f"reference.physics.{name}",
@@ -455,3 +430,4 @@ def config_preflight_report(config: WorkflowConfig) -> dict[str, object]:
         "valid": all(check.ok for check in checks),
         "checks": [check.to_dict() for check in checks],
     }
+

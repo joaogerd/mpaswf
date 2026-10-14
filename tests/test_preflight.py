@@ -214,4 +214,5 @@ def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path
 
     assert report["valid"] is False
     checks = {item["name"]: item for item in report["checks"]}
-    assert checks["static.tutorial_physics_files"]["status"] == "NOT_CONFIGURED"
+    assert checks["runtime.forecast_sources"]["status"] == "NOT_CONFIGURED"
+
