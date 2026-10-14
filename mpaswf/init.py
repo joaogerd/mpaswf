@@ -16,7 +16,9 @@ from .software import installed_executable
 from .validation import validate_file
 from .static import load_static_run, validate_static
 from .wps import wps_output_path
+from .mesh import ensure_campaign_identity
 from .ui import status
+from .mesh import mesh_context, partition_prefix, mpi_ranks
 
 
 @dataclass(frozen=True)
@@ -38,25 +40,24 @@ def load_init_run(config: WorkflowConfig, layout: Layout, init_time: datetime) -
 
 
 def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Path) -> None:
-    """Fail before PBS when the x1.10242 invariant-init contract is malformed."""
+    """Fail before PBS when the configured invariant-init contract is malformed."""
     enabled = bool(value(config, "validation.require_reference_preflight", required=False, default=False))
     if not enabled:
         return
 
     namelist_path = run.run_dir / "namelist.init_atmosphere"
     streams_path = run.run_dir / "streams.init_atmosphere"
-    for path in (wps_file, namelist_path, streams_path, run.run_dir / "x1.10242.static.nc", run.run_dir / "x1.10242.graph.info.part.128"):
+    for path in (wps_file, namelist_path, streams_path, run.run_dir / (string(config, "static.product_template") or ""), run.run_dir / f"{partition_prefix(config)}{mpi_ranks(config)}"):
         if not path.exists():
             raise FileNotFoundError(f"MPAS init preflight input does not exist: {path}")
 
     namelist = namelist_path.read_text(encoding="utf-8")
     streams = streams_path.read_text(encoding="utf-8")
-    expected_time = run.init_time.strftime("%Y-%m-%d_%H:00:00")
+    expected_time = run.init_time.strftime("%Y-%m-%d_%H:%M:%S")
     required_namelist = (
         "config_init_case = 7",
         f"config_start_time = '{expected_time}'",
         f"config_stop_time = '{expected_time}'",
-        "config_nvertlevels = 55",
         "config_met_prefix = 'GFS'",
         "config_sfc_prefix = 'GFS'",
         "config_static_interp = .false.",
@@ -64,13 +65,16 @@ def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Pa
         "config_native_gwd_gsl_static = .false.",
         "config_vertical_grid = .true.",
         "config_met_interp = .true.",
-        "config_block_decomp_file_prefix = 'x1.10242.graph.info.part.'",
+        f"config_block_decomp_file_prefix = '{partition_prefix(config)}'",
     )
+    levels = value(config, "mesh.nvertlevels", required=False, default=None)
+    if levels is not None:
+        required_namelist += (f"config_nvertlevels = {mesh_context(config)['nvertlevels']}",)
     for token in required_namelist:
         if token not in namelist:
             raise RuntimeError(f"MPAS init preflight: namelist is missing expected token: {token}")
 
-    for token in ("x1.10242.static.nc", run.state_path.name, 'clobber_mode="overwrite"'):
+    for token in (string(config, "static.product_template") or "", run.state_path.name, 'clobber_mode="overwrite"'):
         if token not in streams:
             raise RuntimeError(f"MPAS init preflight: streams file is missing expected token: {token}")
 
@@ -79,6 +83,7 @@ def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Pa
 
 def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> InitRun:
     """Stage one MPAS initialization directory from validated invariant + GFS."""
+    ensure_campaign_identity(config, layout.work_dir)
     run = load_init_run(config, layout, init_time)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.state_path, minimum_size) and not force:
@@ -90,6 +95,10 @@ def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *,
     context = layout.context(init_time, init_time, 0, run.run_dir)
     wps_file = wps_output_path(config, layout, init_time)
     validate_file(wps_file, minimum_size)
+    if bool(value(config, "validation.require_reference_preflight", required=False, default=False)):
+        context.update(mesh_context(config))
+    context['static_filename'] = render(string(config, 'static.product_template') or '', context)
+    context['init_filename'] = run.state_path.name
     context.update({"wps_file": str(wps_file), "init_state": str(run.state_path)})
 
     ensure_link(wps_file, run.run_dir / wps_file.name)
@@ -215,3 +224,4 @@ def validate_init(config: WorkflowConfig, layout: Layout, init_time: datetime) -
         },
     )
     return report
+

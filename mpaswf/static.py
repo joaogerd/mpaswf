@@ -25,6 +25,7 @@ from .model import parse_time
 from .pbs import render_pbs_job, submit_pbs, wait_pbs
 from .software import installed_executable
 from .validation import validate_file
+from .mesh import ensure_campaign_identity
 from .ui import status
 
 
@@ -71,6 +72,7 @@ def prepare_static(
     force: bool = False,
 ) -> StaticRun:
     """Stage a precomputed invariant or a generated static interpolation run."""
+    ensure_campaign_identity(config, layout.work_dir)
     run = load_static_run(config, layout)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     source = _configured_static_source(config, run)
@@ -206,3 +208,4 @@ def validate_static(config: WorkflowConfig, layout: Layout) -> Path:
         },
     )
     return report
+

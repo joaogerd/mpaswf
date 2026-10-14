@@ -14,6 +14,7 @@ from .config import WorkflowConfig, render, resolve_path, string, value
 from .files import ensure_directory
 from .software import monan_jedi_root, runtime_contract
 from .ui import Spinner, status
+from .mesh import mpi_ranks as total_mpi_ranks
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,7 @@ def render_pbs_job(
         raise ValueError("pbs must be a mapping when execution.backend is pbs.")
     selected_queue = queue or str(pbs["queue"])
     ensure_directory(run_dir / "logs")
-    mpi_ranks = str(pbs.get("mpiprocs"))
+    mpi_ranks = str(total_mpi_ranks(config))
     merged_context = {**context, "mpi_ranks": mpi_ranks, "executable": str(executable)}
     launcher = _argv(pbs.get("launcher"), merged_context, "pbs.launcher")
     command = [*launcher, str(executable)]
@@ -340,3 +341,4 @@ def run_pbs_smoke(config: WorkflowConfig) -> Path:
 
     status(f"PBS smoke: compute-node execution validated by {sentinel}.", style="success")
     return sentinel
+

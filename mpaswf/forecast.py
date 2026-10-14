@@ -19,7 +19,9 @@ from .pbs import render_pbs_job, submit_pbs, wait_pbs
 from .software import atmosphere_share, installed_executable
 from .static import load_static_run, validate_static
 from .validation import validate_file
+from .mesh import ensure_campaign_identity
 from .ui import status
+from .mesh import mesh_name, partition_prefix, mpi_ranks
 
 
 REFERENCE_PHYSICS_FILES = (
@@ -75,9 +77,48 @@ def _tutorial_dir(config: WorkflowConfig) -> Path:
     raw = string(config, "static.tutorial_physics_files", required=False, default=None)
     if raw is None:
         raise FileNotFoundError(
-            "The x1.10242 reference forecast requires static.tutorial_physics_files."
+            "Declare runtime.forecast_namelist, runtime.forecast_streams and runtime.stream_list_directory."
         )
     return resolve_path(config, raw)
+
+
+def forecast_sources(config: WorkflowConfig) -> tuple[Path, Path]:
+    """Explicit sources override the historical tutorial-directory interface."""
+    nml = string(config, "runtime.forecast_namelist", required=False, default=None)
+    xml = string(config, "runtime.forecast_streams", required=False, default=None)
+    if nml is not None and xml is not None:
+        return resolve_path(config, nml), resolve_path(config, xml)
+    if nml is not None or xml is not None:
+        raise ValueError("Declare both runtime.forecast_namelist and runtime.forecast_streams.")
+    # Only the historical reference case may use the historical source names.
+    if mesh_name(config) != "x1.10242":
+        raise ValueError("Declare runtime.forecast_namelist and runtime.forecast_streams for this mesh.")
+    # Compatibility only: new campaigns should declare both files explicitly.
+    directory = _tutorial_dir(config)
+    return directory / REFERENCE_NAMELIST_FILE, directory / REFERENCE_STREAMS_FILE
+
+
+def physics_files(config: WorkflowConfig) -> list[str]:
+    names = value(config, "runtime.physics_files", required=False, default=list(REFERENCE_PHYSICS_FILES))
+    if not isinstance(names, list) or not all(isinstance(n, str) and n and Path(n).name == n for n in names):
+        raise ValueError("runtime.physics_files must be a list of filenames.")
+    return names
+
+
+def stream_lists(config: WorkflowConfig) -> list[str]:
+    names = value(config, "runtime.stream_lists", required=False, default=list(REFERENCE_STREAM_LISTS))
+    if not isinstance(names, list) or not all(isinstance(n, str) and n and Path(n).name == n for n in names):
+        raise ValueError("runtime.stream_lists must be a list of filenames.")
+    return names
+
+
+def stream_list_directory(config: WorkflowConfig) -> Path:
+    raw = string(config, "runtime.stream_list_directory", required=False, default=None)
+    if raw is not None:
+        return resolve_path(config, raw)
+    if not stream_lists(config):
+        return forecast_sources(config)[1].parent
+    return _tutorial_dir(config)
 
 
 def _patch_namelist(text: str, replacements: dict[str, str]) -> str:
@@ -136,18 +177,17 @@ def _stage_reference_runtime(config: WorkflowConfig, run: ForecastRun) -> tuple[
         if source.is_file() and source.name not in {"namelist.atmosphere", "streams.atmosphere"}:
             ensure_link(source, run.run_dir / source.name)
 
-    tutorial = _tutorial_dir(config)
+    tutorial = stream_list_directory(config)
     if not tutorial.is_dir():
         raise FileNotFoundError(f"MPAS-JEDI tutorial runtime directory does not exist: {tutorial}")
-    for name in REFERENCE_STREAM_LISTS:
+    for name in stream_lists(config):
         ensure_link(tutorial / name, run.run_dir / name)
 
-    namelist_source = tutorial / REFERENCE_NAMELIST_FILE
-    streams_source = tutorial / REFERENCE_STREAMS_FILE
+    namelist_source, streams_source = forecast_sources(config)
     if not namelist_source.is_file():
-        raise FileNotFoundError(f"Reference 240-km namelist does not exist: {namelist_source}")
+        raise FileNotFoundError(f"Configured forecast namelist does not exist: {namelist_source}")
     if not streams_source.is_file():
-        raise FileNotFoundError(f"Reference 240-km streams file does not exist: {streams_source}")
+        raise FileNotFoundError(f"Configured forecast streams file does not exist: {streams_source}")
     return namelist_source, streams_source
 
 
@@ -157,7 +197,7 @@ def _render_reference_forecast(
     namelist_source: Path,
     streams_source: Path,
 ) -> None:
-    """Render the proven NMC x1.10242 forecast settings for one request."""
+    """Render the configured NMC forecast settings for one request."""
     request = run.request
     config_dt = int(value(config, "runtime.config_dt"))
     output_interval = string(config, "runtime.output_interval") or "24:00:00"
@@ -172,7 +212,7 @@ def _render_reference_forecast(
             "config_start_time": f"'{start_time}'",
             "config_run_duration": f"'{run_duration}'",
             "config_do_restart": ".false.",
-            "config_block_decomp_file_prefix": "'x1.10242.graph.info.part.'",
+            "config_block_decomp_file_prefix": f"'{partition_prefix(config)}'",
             "config_sst_update": ".false.",
             "config_sstdiurn_update": ".false.",
             "config_deepsoiltemp_update": ".false.",
@@ -190,7 +230,7 @@ def _render_reference_forecast(
         invariant = ET.SubElement(root, "immutable_stream")
         invariant.set("name", "invariant")
     invariant.set("type", "input")
-    invariant.set("filename_template", "x1.10242.invariant.nc")
+    invariant.set("filename_template", f"{mesh_name(config)}.invariant.nc")
     invariant.set("input_interval", "initial_only")
 
     input_stream = _find_stream(root, "input")
@@ -226,21 +266,21 @@ def _render_reference_forecast(
 
 
 def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
-    """Fail before PBS if the NMC x1.10242 forecast contract is incomplete."""
+    """Fail before PBS if the configured NMC forecast contract is incomplete."""
     if not _reference_enabled(config):
         return
 
     required_paths = [
         run.run_dir / "init.nc",
-        run.run_dir / "x1.10242.invariant.nc",
-        run.run_dir / "x1.10242.grid.nc",
-        run.run_dir / "x1.10242.graph.info",
-        run.run_dir / "x1.10242.graph.info.part.128",
+        run.run_dir / f"{mesh_name(config)}.invariant.nc",
+        run.run_dir / f"{mesh_name(config)}.grid.nc",
+        run.run_dir / f"{mesh_name(config)}.graph.info",
+        run.run_dir / f"{partition_prefix(config)}{mpi_ranks(config)}",
         run.run_dir / "namelist.atmosphere",
         run.run_dir / "streams.atmosphere",
     ]
-    required_paths.extend(run.run_dir / name for name in REFERENCE_STREAM_LISTS)
-    required_paths.extend(run.run_dir / name for name in REFERENCE_PHYSICS_FILES)
+    required_paths.extend(run.run_dir / name for name in stream_lists(config))
+    required_paths.extend(run.run_dir / name for name in physics_files(config))
     for path in required_paths:
         if not path.exists():
             raise FileNotFoundError(f"MPAS forecast preflight input does not exist: {path}")
@@ -260,14 +300,14 @@ def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
         "config_do_restart = .false.",
         "config_do_DAcycling = .true.",
         "config_jedi_da = .true.",
-        "config_block_decomp_file_prefix = 'x1.10242.graph.info.part.'",
+        f"config_block_decomp_file_prefix = '{partition_prefix(config)}'",
     )
     for token in required_namelist:
         if token not in namelist:
             raise RuntimeError(f"MPAS forecast preflight: namelist is missing expected token: {token}")
 
     required_streams = (
-        'filename_template="x1.10242.invariant.nc"',
+        f'filename_template="{mesh_name(config)}.invariant.nc"',
         'filename_template="init.nc"',
         'name="da_state"',
         'filename_template="mpasout.$Y-$M-$D_$h.$m.$s.nc"',
@@ -290,6 +330,7 @@ def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
 
 def prepare_forecast(config: WorkflowConfig, layout: Layout, request: ForecastRequest, *, force: bool = False) -> ForecastRun:
     """Stage one MPAS forecast directory using a validated initial state."""
+    ensure_campaign_identity(config, layout.work_dir)
     run = load_forecast_run(config, layout, request)
     minimum_size = int(value(config, "validation.minimum_size_bytes", required=False, default=1))
     if is_valid_file(run.restart_path, minimum_size) and is_valid_file(run.da_state_path, minimum_size) and not force:
@@ -319,7 +360,7 @@ def prepare_forecast(config: WorkflowConfig, layout: Layout, request: ForecastRe
         ensure_link(init_run.state_path, run.run_dir / "init.nc")
         static_run = load_static_run(config, layout)
         validate_static(config, layout)
-        ensure_link(static_run.state_path, run.run_dir / "x1.10242.invariant.nc")
+        ensure_link(static_run.state_path, run.run_dir / f"{mesh_name(config)}.invariant.nc")
         stage_common_links(config, run.run_dir, context)
         namelist_source, streams_source = _stage_reference_runtime(config, run)
         _render_reference_forecast(config, run, namelist_source, streams_source)
@@ -461,3 +502,4 @@ def validate_forecast(config: WorkflowConfig, layout: Layout, request: ForecastR
         },
     )
     return report
+
