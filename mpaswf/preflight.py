@@ -396,7 +396,9 @@ def check_config_resources(config: WorkflowConfig) -> list[ResourceCheck]:
             _required_dir("software.atmosphere_share", share),
             _writable_dir("paths.work_dir", layout.work_dir),
             _writable_dir("paths.static_dir", layout.static_dir),
-            _writable_dir("paths.gfs_dir", layout.gfs_dir),
+            (_required_dir("paths.gfs_dir", layout.gfs_dir)
+             if string(config, "gfs.acquisition", required=False, default="automatic") == "external"
+             else _writable_dir("paths.gfs_dir", layout.gfs_dir)),
         ]
     )
 
