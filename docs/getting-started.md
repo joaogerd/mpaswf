@@ -359,3 +359,29 @@ new JACI runs.
 
 For all new installations, configure one `software.monan_jedi_install_root` instead.
 The former `software.monan_jedi_root` spelling remains a deprecated compatibility alias.
+
+
+## Understanding check-config failures
+
+`mpaswf check-config --config <config.yaml>` validates inputs without submitting
+jobs or changing filesystem resources. The human-readable output lists resource
+checks and then a **Required corrections** section for failed checks. Each
+failure includes an explanation and a suggested next step.
+
+The `runtime.forecast_sources` label is an internal diagnostic group, **not**
+a YAML key. It means MPAS forecast source configuration is incomplete. For
+non-tutorial meshes, configure `runtime.forecast_namelist` and
+`runtime.forecast_streams`, as well as `runtime.stream_list_directory` when
+stream list files are used. See `docs/mesh-independent-campaigns.md`.
+A nonexistent configured file is reported separately with its resolved path.
+
+The `status` identifiers (such as `MISSING`, `NOT_WRITABLE`, and
+`NOT_CONFIGURED`) remain stable for existing JSON consumers. JSON checks now
+include actionable `detail` text on failures. Errors that prevent loading
+the configuration produce a clean nonzero exit and a message instead of a
+Python traceback; `--json` returns a valid object containing
+`valid: false`, `checks: []`, and an `error` description.
+
+If GFS data already exist in a read-only shared directory, select
+`gfs.acquisition: external`. Automatic acquisition requires a writable
+download destination.
