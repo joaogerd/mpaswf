@@ -65,3 +65,42 @@ def test_check_config_human_output_uses_standard_ui(monkeypatch, capsys) -> None
     assert "✓ software.monan_jedi_root — OK" in captured
     assert "✗ reference.forecast_streams — MISSING" in captured
     assert "✗ MPASWF config preflight: failed — 1 of 2 checks failed." in captured
+
+
+def test_check_config_invalid_yaml_returns_clean_error(monkeypatch, capsys) -> None:
+    from mpaswf.config import ConfigurationError
+
+    def invalid(_path):
+        raise ConfigurationError("Missing required key: runtime.config_dt")
+
+    monkeypatch.setattr(cli, "load_config", invalid)
+    assert cli.main(["check-config", "--config", "/tmp/invalid.yaml"]) == 1
+    captured = capsys.readouterr()
+    assert "runtime.config_dt" in captured.err
+    assert "How to fix" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_check_config_invalid_yaml_json_remains_parseable(monkeypatch, capsys) -> None:
+    from mpaswf.config import ConfigurationError
+
+    def invalid(_path):
+        raise ConfigurationError("Missing YAML value")
+
+    monkeypatch.setattr(cli, "load_config", invalid)
+    assert cli.main(["check-config", "--config", "/tmp/invalid.yaml", "--json"]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["valid"] is False
+    assert data["error"]["status"] == "INVALID_CONFIGURATION"
+    assert data["checks"] == []
+
+
+def test_check_config_lists_failed_check_corrections(monkeypatch, capsys) -> None:
+    config = SimpleNamespace(path=Path("/tmp/config.yaml"))
+    monkeypatch.setattr(cli, "load_config", lambda path: config)
+    monkeypatch.setattr(cli, "config_preflight_report", lambda loaded: _report(valid=False))
+    monkeypatch.setenv("MPASWF_COLOR", "never")
+    assert cli.main(["check-config", "--config", "/tmp/config.yaml"]) == 1
+    out = capsys.readouterr().out
+    assert "Required corrections:" in out
+    assert "reference.forecast_streams:" in out
