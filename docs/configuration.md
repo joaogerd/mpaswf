@@ -129,7 +129,7 @@ configured URL downloads the complete 0.25-degree GFS GRIB2 product from NOAA's
 public AWS archive and stores it at the same local path. The download is written
 through a temporary `.download` file and renamed only after completion.
 
-Use `acquisition: external` and `url_template: null` for externally managed read-only inputs. For backward compatibility, omitting `acquisition` retains the previous `automatic` behavior. Automatic mode requires a URL to download missing inputs and write access to the download directory.
+Use `acquisition: external` and `url_template: null` for externally managed read-only inputs. For backward compatibility, omitting `acquisition` retains the previous `automatic` behavior. Loading such a configuration emits a `FutureWarning`: the implicit default is deprecated and will be removed in a future release. Existing users do not need to change anything immediately, but should set `gfs.acquisition` explicitly to `automatic` or `external`. Declaring either value suppresses the warning. Automatic mode requires a URL to download missing inputs and write access to the download directory.
 
 ## `wps`
 
