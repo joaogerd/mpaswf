@@ -21,6 +21,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -213,6 +214,20 @@ def load_config(path: Path) -> WorkflowConfig:
 
     merged = _apply_runtime_anchor_overrides(merged)
     _validate_environment_expansion(merged)
+    # Compatibility window: preserve historical automatic GFS acquisition when
+    # the new key is omitted, but ask users to declare their intent explicitly.
+    gfs_section = merged.get("gfs")
+    if isinstance(gfs_section, dict) and "acquisition" not in gfs_section:
+        gfs_section["acquisition"] = "automatic"
+        warnings.warn(
+            "gfs.acquisition is not configured; using the legacy default "
+            "'automatic'. This implicit default is deprecated and will be "
+            "removed in a future release. Set gfs.acquisition explicitly to "
+            "'automatic' (downloads require write access to paths.gfs_dir) "
+            "or 'external' (read-only existing GFS inputs).",
+            FutureWarning,
+            stacklevel=2,
+        )
     config = WorkflowConfig(path=platform_path, data=merged)
     validate_config(config)
     return config
@@ -282,6 +297,12 @@ def validate_config(config: WorkflowConfig) -> None:
     """
     for section in ("paths", "campaign", "gfs", "wps", "products", "templates", "static", "execution", "validation"):
         mapping(config, section)
+
+    acquisition = string(config, "gfs.acquisition", required=False, default="automatic")
+    if acquisition not in {"external", "automatic"}:
+        raise ConfigurationError(
+            "gfs.acquisition must be either 'external' or 'automatic'."
+        )
 
     for key in (
         "paths.work_dir",
