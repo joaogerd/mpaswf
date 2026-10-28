@@ -39,7 +39,86 @@ class ResourceCheck:
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["path"] = str(self.path)
+        if not self.ok:
+            payload["detail"] = explain_failure(self)
         return payload
+
+
+def explain_failure(check: ResourceCheck) -> str:
+    """Explain an actionable filesystem failure without changing status IDs."""
+    guidance = {
+        "MISSING": "Required resource does not exist. Check its configured path and stage or install the file.",
+        "WRONG_TYPE": "The path exists, but is not the expected file or directory. Correct the path.",
+        "NOT_READABLE": "File cannot be read. Check ownership, ACLs, and read permission.",
+        "NOT_ACCESSIBLE": "Directory cannot be accessed. Grant read and traverse (execute) permission.",
+        "NOT_EXECUTABLE": "Executable cannot be run. Check installation and execute permission.",
+        "NOT_WRITABLE": "Directory is not writable. Check ownership, ACLs, and write/traverse permissions.",
+        "PARENT_NOT_WRITABLE": "Directory does not exist and its parent cannot be written. Create it in a writable location or adjust permissions.",
+        "NO_EXISTING_PARENT": "No existing directory ancestor was found. Check the configured path.",
+        "INVALID": "The installed runtime contract is invalid or incompatible. Review the manifest and installation.",
+        "NOT_CONFIGURED": "Required forecast inputs are not fully configured. Review the runtime YAML entries.",
+    }
+    base = check.detail.strip()
+    advice = guidance.get(check.status, "Review this configuration resource.")
+    if check.name == "paths.gfs_dir" and check.status in {"NOT_WRITABLE", "PARENT_NOT_WRITABLE"}:
+        advice += (
+            " Automatic GFS downloads need a writable destination; to use pre-existing "
+            "read-only files, set gfs.acquisition: external."
+        )
+    if check.name.startswith("reference.forecast_") and check.status == "MISSING":
+        advice += " Set runtime.forecast_namelist and runtime.forecast_streams to existing MPAS case files."
+    if check.name.startswith("reference.stream_list.") and check.status == "MISSING":
+        advice += " Check runtime.stream_list_directory and runtime.stream_lists."
+    if check.name == "paths.cdct_templates_dir":
+        advice += " Inspect paths.cdct_templates_dir in the platform YAML."
+    if check.name == "static.source":
+        advice += " Check static.source (the precomputed invariant input)."
+    if check.name.startswith("static.links["):
+        advice += " Check the matching static.links entry and its source path."
+    return f"{base} {advice}".strip() if base else advice
+
+
+def _forecast_configuration_failure(config: WorkflowConfig, error: Exception) -> ResourceCheck:
+    """Convert a missing forecast configuration to a user-facing diagnosis."""
+    from .mesh import mesh_name
+
+    mesh = mesh_name(config)
+    nml = string(config, "runtime.forecast_namelist", required=False, default=None)
+    streams = string(config, "runtime.forecast_streams", required=False, default=None)
+    directory = string(config, "runtime.stream_list_directory", required=False, default=None)
+    if not nml or not streams:
+        missing = [
+            key for key, configured in (
+                ("runtime.forecast_namelist", nml),
+                ("runtime.forecast_streams", streams),
+            ) if not configured
+        ]
+        if mesh == "x1.10242" and not nml and not streams:
+            missing.append("static.tutorial_physics_files (legacy 240-km fallback)")
+        suggestion = (
+            "Provide the MPAS namelist.atmosphere and streams.atmosphere files "
+            "for the selected mesh. "
+        )
+    elif not directory:
+        missing = ["runtime.stream_list_directory"]
+        suggestion = (
+            "Set runtime.stream_list_directory to the directory containing "
+            "the configured stream_list files (or set runtime.stream_lists: [] "
+            "if none are needed). "
+        )
+    else:
+        missing = []
+        suggestion = "Verify runtime.stream_lists and the selected forecast inputs. "
+    detail = (
+        f"Forecast source configuration for mesh {mesh} is incomplete or invalid. "
+        f"{'Missing: ' + ', '.join(missing) + '. ' if missing else ''}"
+        f"{suggestion}Cause: {error}. "
+        "See docs/mesh-independent-campaigns.md."
+    )
+    return ResourceCheck(
+        "runtime.forecast_sources", Path("<configuration>"),
+        "MPAS forecast input configuration", "NOT_CONFIGURED", False, detail
+    )
 
 
 def _nearest_existing_parent(path: Path) -> Path | None:
@@ -270,8 +349,7 @@ def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceC
             for name in stream_lists(config):
                 yield _required_file(f"reference.{name}", directory / name)
         except (ValueError, FileNotFoundError) as error:
-            yield ResourceCheck("runtime.forecast_sources", Path("<not configured>"),
-                                "configured forecast sources", "NOT_CONFIGURED", False, str(error))
+            yield _forecast_configuration_failure(config, error)
 
     links = value(config, "static.links", required=False, default=[])
     if not isinstance(links, list):
