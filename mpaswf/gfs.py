@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
@@ -91,9 +92,30 @@ def ensure_gfs(config: WorkflowConfig, layout: Layout, init_time: datetime, *, f
     if is_valid_file(product.path, minimum_size) and not force:
         status(f"GFS {label}: reusing {product.path.name} ({format_bytes(product.path.stat().st_size)}).")
         return product
+    acquisition = string(config, "gfs.acquisition", required=False, default="automatic")
+    if acquisition not in {"external", "automatic"}:
+        raise ValueError(
+            f"Invalid gfs.acquisition={acquisition!r}; use 'external' or 'automatic'."
+        )
+    if acquisition == "external":
+        raise FileNotFoundError(
+            f"GFS input missing or invalid: {product.path}. "
+            "Acquisition is disabled (gfs.acquisition: external). "
+            "Provide the GFS file, or enable automatic download using "
+            "'gfs.acquisition: automatic' and configure gfs.url_template. "
+            "Automatic download requires write access to paths.gfs_dir and cycle subdirectories."
+        )
     if not product.url:
         raise FileNotFoundError(
-            f"GFS file is absent or invalid and gfs.url_template is not configured: {product.path}"
+            f"GFS input missing or invalid: {product.path}. "
+            "Set gfs.url_template for automatic download, or switch to "
+            "'gfs.acquisition: external' to use existing read-only inputs."
+        )
+    if product.path.parent.exists() and not os.access(product.path.parent, os.W_OK | os.X_OK):
+        raise PermissionError(
+            f"GFS download destination is not writable: {product.path.parent}. "
+            "Automatic download needs write access to paths.gfs_dir and cycle subdirectories. "
+            "Alternatively select 'gfs.acquisition: external' and supply an existing valid file."
         )
 
     ensure_directory(product.path.parent)

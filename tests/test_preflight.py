@@ -216,3 +216,23 @@ def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path
     checks = {item["name"]: item for item in report["checks"]}
     assert checks["runtime.forecast_sources"]["status"] == "NOT_CONFIGURED"
 
+
+def test_external_gfs_directory_needs_read_only_access(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    gfs = Path(config.data["paths"]["gfs_dir"])
+    gfs.mkdir(parents=True)
+    gfs.chmod(0o555)
+    config.data["gfs"] = {"acquisition": "external"}
+    report = config_preflight_report(config)
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["paths.gfs_dir"]["status"] == "OK"
+    assert checks["paths.gfs_dir"]["expectation"] == "directory"
+    assert report["valid"] is True
+
+
+def test_automatic_gfs_directory_requires_write_access(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["gfs"] = {"acquisition": "automatic"}
+    report = config_preflight_report(config)
+    checks = {item["name"]: item for item in report["checks"]}
+    assert checks["paths.gfs_dir"]["expectation"] == "writable directory"
