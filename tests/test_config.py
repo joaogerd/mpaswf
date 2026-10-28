@@ -170,3 +170,39 @@ pbs:
 
     config = load_config(config_path)
     assert value(config, "pbs.bootstrap")[0] == 'cd "$PBS_O_WORKDIR"'
+
+
+def test_omitted_gfs_acquisition_preserves_legacy_default_and_warns() -> None:
+    root = Path(__file__).resolve().parents[1]
+    with pytest.warns(FutureWarning, match="gfs.acquisition"):
+        config = load_config(root / "examples" / "config.yaml")
+    assert value(config, "gfs.acquisition") == "automatic"
+
+
+def test_explicit_gfs_acquisition_suppresses_future_warning(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "examples" / "config.yaml").read_text(encoding="utf-8")
+    # Keep the same legacy config while adding one explicit choice.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        source.replace("gfs:\n", "gfs:\n  acquisition: external\n", 1),
+        encoding="utf-8",
+    )
+    import warnings
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", FutureWarning)
+        config = load_config(config_path)
+    assert value(config, "gfs.acquisition") == "external"
+    assert not any(issubclass(item.category, FutureWarning) for item in captured)
+
+
+def test_invalid_gfs_acquisition_fails_validation(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "examples" / "config.yaml").read_text(encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        source.replace("gfs:\n", "gfs:\n  acquisition: unknown\n", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigurationError, match="gfs.acquisition"):
+        load_config(config_path)
