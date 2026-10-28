@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from .config import load_config
+from .config import ConfigurationError, load_config
 from .pbs import run_pbs_smoke
 from .preflight import config_preflight_report
 from .workflow import run_forecast, run_init, run_manifest, run_prepare
@@ -63,8 +64,23 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == "check-config":
-        config = load_config(args.config)
-        report = config_preflight_report(config)
+        try:
+            config = load_config(args.config)
+            report = config_preflight_report(config)
+        except (ConfigurationError, FileNotFoundError, PermissionError, ValueError) as error:
+            message = f"Configuration check could not start: {error}"
+            hint = (
+                "Verify the YAML path, required keys, permissions, and referenced "
+                "workflow contract. No MPAS jobs were submitted."
+            )
+            if args.json:
+                print(json.dumps({
+                    "config": str(args.config), "valid": False, "checks": [],
+                    "error": {"status": "INVALID_CONFIGURATION", "message": str(error), "hint": hint},
+                }, indent=2, sort_keys=True))
+            else:
+                print(f"ERROR: {message}\\nHow to fix: {hint}", file=sys.stderr)
+            return 1
         if args.json:
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
@@ -80,6 +96,14 @@ def main(argv: list[str] | None = None) -> int:
 
             total = len(report["checks"])
             failed = sum(1 for check in report["checks"] if not check["ok"])
+            if not report["valid"]:
+                status("Required corrections:", style="error")
+                for check in report["checks"]:
+                    if not check["ok"]:
+                        status(
+                            f"{check['name']}: {check['detail'] or check['status']}",
+                            style="warning",
+                        )
             if report["valid"]:
                 status(
                     f"MPASWF config preflight: complete — {total} checks passed.",
