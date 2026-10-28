@@ -236,3 +236,29 @@ def test_automatic_gfs_directory_requires_write_access(tmp_path: Path) -> None:
     report = config_preflight_report(config)
     checks = {item["name"]: item for item in report["checks"]}
     assert checks["paths.gfs_dir"]["expectation"] == "writable directory"
+
+
+def test_forecast_sources_error_explains_missing_yaml_entries(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["validation"] = {"require_reference_preflight": True}
+    config.data["mesh"] = {"name": "x1.2621442"}
+    config.data["static"].pop("tutorial_physics_files")
+    report = config_preflight_report(config)
+    checks = {item["name"]: item for item in report["checks"]}
+    failure = checks["runtime.forecast_sources"]
+    assert failure["status"] == "NOT_CONFIGURED"
+    assert "x1.2621442" in failure["detail"]
+    assert "runtime.forecast_namelist" in failure["detail"]
+    assert "runtime.forecast_streams" in failure["detail"]
+    assert "docs/mesh-independent-campaigns.md" in failure["detail"]
+
+
+def test_preflight_missing_file_detail_preserves_machine_status(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.data["static"]["links"][1]["source"]).unlink()
+    checks = {item["name"]: item for item in config_preflight_report(config)["checks"]}
+    failure = checks["static.links[1].source"]
+    assert failure["status"] == "MISSING"
+    assert failure["ok"] is False
+    assert "static.links" in failure["detail"]
+    assert "Check" in failure["detail"]
