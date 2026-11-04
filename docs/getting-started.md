@@ -1,6 +1,8 @@
 # Getting started with MPASWF
 
-This guide describes the first JACI run using the current runtime contract.
+This walkthrough preserves the original x1.10242 JACI validation campaign.
+**For all new meshes, start with [generic campaigns](generic-campaigns.md).**
+The tutorial data and parameters are not defaults for new experiments.
 
 ## 1. What MPASWF does
 
@@ -364,24 +366,24 @@ The former `software.monan_jedi_root` spelling remains a deprecated compatibilit
 ## Understanding check-config failures
 
 `mpaswf check-config --config <config.yaml>` validates inputs without submitting
-jobs or changing filesystem resources. The human-readable output lists resource
-checks and then a **Required corrections** section for failed checks. Each
-failure includes an explanation and a suggested next step.
+jobs or changing resources. By default it prints **only failed checks** and tells
+the user which editable YAML field or path to correct. Use `--verbose` to see
+passed checks and `--json` for machine-readable status.
 
-The `runtime.forecast_sources` label is an internal diagnostic group, **not**
-a YAML key. It means MPAS forecast source configuration is incomplete. For
-non-tutorial meshes, configure `runtime.forecast_namelist` and
-`runtime.forecast_streams`, as well as `runtime.stream_list_directory` when
-stream list files are used. See `docs/mesh-independent-campaigns.md`.
-A nonexistent configured file is reported separately with its resolved path.
+For a generic campaign, configure the real YAML fields
+`runtime.forecast_namelist` and `runtime.forecast_streams`.
+When external stream-list files are required, their directory normally defaults
+to the streams XML parent directory; override with
+`runtime.stream_list_directory` if necessary. See
+[generic campaigns](generic-campaigns.md).
 
-The `status` identifiers (such as `MISSING`, `NOT_WRITABLE`, and
-`NOT_CONFIGURED`) remain stable for existing JSON consumers. JSON checks now
-include actionable `detail` text on failures. Errors that prevent loading
-the configuration produce a clean nonzero exit and a message instead of a
-Python traceback; `--json` returns a valid object containing
-`valid: false`, `checks: []`, and an `error` description.
+The previously displayed internal `runtime.forecast_sources` diagnostic
+is **not** a YAML key and is no longer displayed or returned as a check.
+Existing machine-readable status identifiers (`MISSING`,
+`NOT_CONFIGURED`, etc.) remain unchanged. Errors while loading a configuration
+produce a clean nonzero exit; `--json` includes `valid: false`, `checks: []`
+and an `error` explanation.
 
-If GFS data already exist in a read-only shared directory, select
-`gfs.acquisition: external`. Automatic acquisition requires a writable
-download destination.
+For an existing read-only shared GFS directory use
+`gfs.acquisition: external`. Automatic acquisition needs a writable
+destination.
