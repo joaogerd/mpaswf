@@ -3,6 +3,10 @@
 The documentation is organized so a new user can learn the workflow from first
 principles and then move to reference material.
 
+For new scientific experiments, start with
+[**Generic campaigns**](generic-campaigns.md). The old x1.10242 instructions
+are retained as historical validation documentation, not as a default.
+
 ## Recommended reading order
 
 1. **[Getting started](getting-started.md)** — start here if you have never run
