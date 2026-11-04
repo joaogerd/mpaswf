@@ -1,5 +1,9 @@
 # Mesh-independent campaigns
 
+For a concrete, reproducible starting point, use
+[the archived 240-km testcase](../testcase/tutorial-240km/README.md).
+It is a selected experiment, not an implicit software default.
+
 MPASWF is a generic MPAS forecast producer for NMC/BMatrix experiments. The
 historical x1.10242 tutorial is **only a compatibility example**, not a source
 of scientific settings for new meshes. A new campaign must provide its own

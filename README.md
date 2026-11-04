@@ -15,6 +15,17 @@ GFS f000
 
 It does not compile MPAS/WPS and it does not run the B-matrix calibration.
 
+## Reproducible experiment directory
+
+The original validation campaign is preserved under
+[**testcase/tutorial-240km**](testcase/tutorial-240km/README.md).
+This directory contains its composed configuration, parameterized init
+templates, and an explicit `run.sh` entrypoint. Copy it to establish another
+mesh or time window; nothing in the generic program loads it implicitly.
+
+See [case-independence audit](docs/case-independence-audit.md) for the list of
+former assumptions, intentional NMC constraints and validation limits.
+
 ## Generic campaigns and error messages
 
 New campaigns are **independent of the original MPAS-JEDI tutorial**. Supply

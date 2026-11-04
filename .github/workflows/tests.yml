@@ -36,5 +36,8 @@ jobs:
       - name: Compile package
         run: python -m compileall -q mpaswf
 
+      - name: Check testcase runner syntax
+        run: bash -n testcase/tutorial-240km/run.sh
+
       - name: Run tests
         run: python -m pytest
