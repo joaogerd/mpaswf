@@ -21,7 +21,7 @@ from .static import load_static_run, validate_static
 from .validation import validate_file
 from .mesh import ensure_campaign_identity
 from .ui import status
-from .mesh import mesh_name, partition_prefix, mpi_ranks
+from .mesh import mesh_name, partition_prefix, mpi_ranks, staging_preflight_enabled
 
 
 REFERENCE_PHYSICS_FILES = (
@@ -70,7 +70,8 @@ def load_forecast_run(config: WorkflowConfig, layout: Layout, request: ForecastR
 
 
 def _reference_enabled(config: WorkflowConfig) -> bool:
-    return bool(value(config, "validation.require_reference_preflight", required=False, default=False))
+    """Backward-compatible internal name for mesh-aware forecast staging."""
+    return staging_preflight_enabled(config)
 
 
 def _tutorial_dir(config: WorkflowConfig) -> Path:
@@ -99,27 +100,74 @@ def forecast_sources(config: WorkflowConfig) -> tuple[Path, Path]:
 
 
 def physics_files(config: WorkflowConfig) -> list[str]:
-    names = value(config, "runtime.physics_files", required=False, default=list(REFERENCE_PHYSICS_FILES))
-    if not isinstance(names, list) or not all(isinstance(n, str) and n and Path(n).name == n for n in names):
+    """Only enforce explicitly selected physics files for new campaigns."""
+    names = value(config, "runtime.physics_files", required=False, default=None)
+    if names is None:
+        legacy = (
+            mesh_name(config) == "x1.10242"
+            and string(config, "static.tutorial_physics_files", required=False, default=None)
+            and string(config, "runtime.forecast_namelist", required=False, default=None) is None
+            and string(config, "runtime.forecast_streams", required=False, default=None) is None
+        )
+        names = list(REFERENCE_PHYSICS_FILES) if legacy else []
+    if not isinstance(names, list) or not all(
+        isinstance(n, str) and n and Path(n).name == n for n in names
+    ):
         raise ValueError("runtime.physics_files must be a list of filenames.")
     return names
 
 
 def stream_lists(config: WorkflowConfig) -> list[str]:
-    names = value(config, "runtime.stream_lists", required=False, default=list(REFERENCE_STREAM_LISTS))
-    if not isinstance(names, list) or not all(isinstance(n, str) and n and Path(n).name == n for n in names):
-        raise ValueError("runtime.stream_lists must be a list of filenames.")
+    """Use configured list files, or discover those referenced by the case XML.
+
+    Historical tutorial configurations retain their previous four-file default.
+    New campaigns never inherit stream-list requirements from another mesh.
+    """
+    explicit = value(config, "runtime.stream_lists", required=False, default=None)
+    if explicit is not None:
+        if not isinstance(explicit, list) or not all(
+            isinstance(n, str) and n and Path(n).name == n for n in explicit
+        ):
+            raise ValueError("runtime.stream_lists must be a list of filenames.")
+        return explicit
+
+    if (
+        mesh_name(config) == "x1.10242"
+        and string(config, "static.tutorial_physics_files", required=False, default=None)
+        and string(config, "runtime.forecast_namelist", required=False, default=None) is None
+        and string(config, "runtime.forecast_streams", required=False, default=None) is None
+    ):
+        return list(REFERENCE_STREAM_LISTS)
+
+    # An absent streams XML is reported by the file preflight, not as a
+    # misleading failure to configure stream lists.
+    streams_xml = forecast_sources(config)[1]
+    if not streams_xml.is_file():
+        return []
+    try:
+        root = ET.parse(streams_xml).getroot()
+    except ET.ParseError as error:
+        raise ValueError(
+            f"Invalid MPAS streams XML: {streams_xml}. Correct this file: {error}"
+        ) from error
+    names: list[str] = []
+    for element in root.iter():
+        tag = element.tag.rsplit("}", 1)[-1]
+        name = element.get("name")
+        if (
+            tag == "file" and name and name.startswith("stream_list.")
+            and Path(name).name == name and name not in names
+        ):
+            names.append(name)
     return names
 
 
 def stream_list_directory(config: WorkflowConfig) -> Path:
+    """Case XML directory is the default; override only when lists live elsewhere."""
     raw = string(config, "runtime.stream_list_directory", required=False, default=None)
     if raw is not None:
         return resolve_path(config, raw)
-    if not stream_lists(config):
-        return forecast_sources(config)[1].parent
-    return _tutorial_dir(config)
-
+    return forecast_sources(config)[1].parent
 
 def _patch_namelist(text: str, replacements: dict[str, str]) -> str:
     """Patch required MPAS namelist keys and fail if the reference changed."""
@@ -137,7 +185,7 @@ def _patch_namelist(text: str, replacements: dict[str, str]) -> str:
         text = updated
     if missing:
         raise RuntimeError(
-            "MPAS forecast reference namelist is missing expected options: "
+            "MPAS forecast namelist is missing expected options: "
             + ", ".join(missing)
         )
     return text
@@ -168,7 +216,7 @@ def _ensure_restart_stream(root: ET.Element, output_interval: str) -> None:
 
 
 def _stage_reference_runtime(config: WorkflowConfig, run: ForecastRun) -> tuple[Path, Path]:
-    """Stage installed MPAS physics files and validated tutorial stream lists."""
+    """Stage installed MPAS physics files and selected campaign stream lists."""
     share = atmosphere_share(config)
     if not share.is_dir():
         raise FileNotFoundError(f"Installed MPAS atmosphere share does not exist: {share}")
@@ -177,11 +225,21 @@ def _stage_reference_runtime(config: WorkflowConfig, run: ForecastRun) -> tuple[
         if source.is_file() and source.name not in {"namelist.atmosphere", "streams.atmosphere"}:
             ensure_link(source, run.run_dir / source.name)
 
-    tutorial = stream_list_directory(config)
-    if not tutorial.is_dir():
-        raise FileNotFoundError(f"MPAS-JEDI tutorial runtime directory does not exist: {tutorial}")
-    for name in stream_lists(config):
-        ensure_link(tutorial / name, run.run_dir / name)
+    lists = stream_lists(config)
+    source_directory = stream_list_directory(config)
+    if lists and not source_directory.is_dir():
+        raise FileNotFoundError(
+            f"MPAS stream-list directory does not exist: {source_directory}. "
+            "Set runtime.stream_list_directory to the directory with these files."
+        )
+    for name in lists:
+        source = source_directory / name
+        if not source.is_file():
+            raise FileNotFoundError(
+                f"MPAS stream-list file does not exist: {source}. "
+                "Correct runtime.stream_list_directory or runtime.stream_lists."
+            )
+        ensure_link(source, run.run_dir / name)
 
     namelist_source, streams_source = forecast_sources(config)
     if not namelist_source.is_file():
@@ -324,7 +382,7 @@ def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
 
     status(
         f"MPAS forecast {request.init_time.strftime('%Y-%m-%d %HZ')} "
-        f"f{request.lead_hours:03d}: reference preflight passed."
+        f"f{request.lead_hours:03d}: input checks passed."
     )
 
 

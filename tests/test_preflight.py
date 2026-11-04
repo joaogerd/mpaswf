@@ -186,8 +186,8 @@ def test_reference_path_skips_unused_generic_templates(tmp_path: Path) -> None:
     assert "templates.static_streams" not in checks
     assert "templates.forecast_namelist" not in checks
     assert "templates.forecast_streams" not in checks
-    assert checks["reference.forecast_namelist"]["status"] == "OK"
-    assert checks["reference.forecast_streams"]["status"] == "OK"
+    assert checks["runtime.forecast_namelist"]["status"] == "OK"
+    assert checks["runtime.forecast_streams"]["status"] == "OK"
 
 
 def test_reference_path_reports_missing_real_forecast_input(tmp_path: Path) -> None:
@@ -201,7 +201,7 @@ def test_reference_path_reports_missing_real_forecast_input(tmp_path: Path) -> N
 
     assert report["valid"] is False
     checks = {item["name"]: item for item in report["checks"]}
-    assert checks["reference.forecast_streams"]["status"] == "MISSING"
+    assert checks["runtime.forecast_streams"]["status"] == "MISSING"
 
 
 
@@ -214,7 +214,9 @@ def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path
 
     assert report["valid"] is False
     checks = {item["name"]: item for item in report["checks"]}
-    assert checks["runtime.forecast_sources"]["status"] == "NOT_CONFIGURED"
+    assert checks["runtime.forecast_namelist"]["status"] == "NOT_CONFIGURED"
+    assert checks["runtime.forecast_streams"]["status"] == "NOT_CONFIGURED"
+    assert "runtime.forecast_sources" not in checks
 
 
 def test_external_gfs_directory_needs_read_only_access(tmp_path: Path) -> None:
@@ -245,12 +247,13 @@ def test_forecast_sources_error_explains_missing_yaml_entries(tmp_path: Path) ->
     config.data["static"].pop("tutorial_physics_files")
     report = config_preflight_report(config)
     checks = {item["name"]: item for item in report["checks"]}
-    failure = checks["runtime.forecast_sources"]
-    assert failure["status"] == "NOT_CONFIGURED"
-    assert "x1.2621442" in failure["detail"]
-    assert "runtime.forecast_namelist" in failure["detail"]
-    assert "runtime.forecast_streams" in failure["detail"]
-    assert "docs/mesh-independent-campaigns.md" in failure["detail"]
+    assert "runtime.forecast_sources" not in checks
+    for field in ("runtime.forecast_namelist", "runtime.forecast_streams"):
+        failure = checks[field]
+        assert failure["status"] == "NOT_CONFIGURED"
+        assert "x1.2621442" in failure["detail"]
+        assert field in failure["detail"]
+        assert str(config.path) in failure["path"]
 
 
 def test_preflight_missing_file_detail_preserves_machine_status(tmp_path: Path) -> None:
@@ -262,3 +265,23 @@ def test_preflight_missing_file_detail_preserves_machine_status(tmp_path: Path) 
     assert failure["ok"] is False
     assert "static.links" in failure["detail"]
     assert "Check" in failure["detail"]
+
+
+def test_generic_mesh_uses_real_fields_and_reports_missing_file(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.data["mesh"] = {"name": "x1.163842"}
+    config.data["static"]["product_template"] = "x1.163842.static.nc"
+    config.data["static"].pop("tutorial_physics_files")
+    config.data["validation"] = {"require_staging_preflight": True}
+    nml = tmp_path / "case" / "namelist.atmosphere"
+    xml = tmp_path / "case" / "streams.atmosphere"
+    _touch(nml)
+    config.data["runtime"] = {
+        "forecast_namelist": str(nml), "forecast_streams": str(xml),
+        "config_dt": 150,
+    }
+    checks = {item["name"]: item for item in config_preflight_report(config)["checks"]}
+    assert "runtime.forecast_sources" not in checks
+    assert checks["runtime.forecast_namelist"]["status"] == "OK"
+    assert checks["runtime.forecast_streams"]["status"] == "MISSING"
+    assert str(xml) in checks["runtime.forecast_streams"]["path"]

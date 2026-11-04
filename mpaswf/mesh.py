@@ -52,11 +52,26 @@ def mesh_context(config: WorkflowConfig) -> dict[str, str]:
     return result
 
 
+def staging_preflight_enabled(config: WorkflowConfig) -> bool:
+    """Enable mesh-aware checks, accepting the old flag for existing campaigns."""
+    setting = value(
+        config, "validation.require_staging_preflight", required=False, default=None
+    )
+    if setting is None:
+        setting = value(
+            config, "validation.require_reference_preflight",
+            required=False, default=False,
+        )
+    if not isinstance(setting, bool):
+        raise ConfigurationError(
+            "validation.require_staging_preflight must be true or false."
+        )
+    return setting
+
+
 def ensure_campaign_identity(config: WorkflowConfig, work_dir: Path) -> None:
     """Do not reuse neutral forecast filenames from another mesh/campaign."""
-    if not value(
-        config, "validation.require_reference_preflight", required=False, default=False
-    ):
+    if not staging_preflight_enabled(config):
         return
     identity = {
         "mesh": mesh_name(config),

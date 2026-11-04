@@ -18,7 +18,7 @@ from .static import load_static_run, validate_static
 from .wps import wps_output_path
 from .mesh import ensure_campaign_identity
 from .ui import status
-from .mesh import mesh_context, partition_prefix, mpi_ranks
+from .mesh import mesh_context, partition_prefix, mpi_ranks, staging_preflight_enabled
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ def load_init_run(config: WorkflowConfig, layout: Layout, init_time: datetime) -
 
 def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Path) -> None:
     """Fail before PBS when the configured invariant-init contract is malformed."""
-    enabled = bool(value(config, "validation.require_reference_preflight", required=False, default=False))
+    enabled = staging_preflight_enabled(config)
     if not enabled:
         return
 
@@ -78,7 +78,7 @@ def _validate_reference_setup(config: WorkflowConfig, run: InitRun, wps_file: Pa
         if token not in streams:
             raise RuntimeError(f"MPAS init preflight: streams file is missing expected token: {token}")
 
-    status(f"MPAS init {run.init_time.strftime('%Y-%m-%d %HZ')}: reference preflight passed.")
+    status(f"MPAS init {run.init_time.strftime('%Y-%m-%d %HZ')}: input checks passed.")
 
 
 def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *, force: bool = False) -> InitRun:
@@ -95,7 +95,7 @@ def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *,
     context = layout.context(init_time, init_time, 0, run.run_dir)
     wps_file = wps_output_path(config, layout, init_time)
     validate_file(wps_file, minimum_size)
-    if bool(value(config, "validation.require_reference_preflight", required=False, default=False)):
+    if staging_preflight_enabled(config):
         context.update(mesh_context(config))
     context['static_filename'] = render(string(config, 'static.product_template') or '', context)
     context['init_filename'] = run.state_path.name
