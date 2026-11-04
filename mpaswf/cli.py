@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the public `mpaswf` argument parser."""
     parser = argparse.ArgumentParser(
         prog="mpaswf",
-        description="Small MPAS-only workflow derived from one CD-CT reference case.",
+        description="Mesh-independent MPAS forecast workflow.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -40,12 +40,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the complete preflight report as JSON.",
     )
 
+    check.add_argument("--verbose", action="store_true", help="Show passed checks as well.")
+
     smoke = commands.add_parser(
         "pbs-smoke",
         help="Submit a real one-rank PBS job and validate compute-node execution.",
     )
     smoke.add_argument("--config", required=True, type=Path)
     return parser
+
+
+def _display_name(check: dict[str, object]) -> str:
+    """Use actual YAML keys or descriptive resource names, never internal IDs."""
+    name = str(check["name"])
+    path = Path(str(check["path"]))
+    if name.startswith(("runtime.", "paths.", "templates.", "gfs.", "wps.")):
+        return name
+    if name in ("static.source", "software.monan_jedi_install_root"):
+        return name
+    if name.startswith("static.links["):
+        return f"Mesh input: {path.name}"
+    if name.startswith("reference.physics."):
+        return f"MPAS physics file: {path.name}"
+    if name.startswith("pbs.bootstrap["):
+        return f"PBS environment input: {path.name}"
+    return f"Required resource: {path.name}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -84,36 +103,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps(report, indent=2, sort_keys=True))
         else:
-            status(f"MPASWF config preflight: {config.path}.")
-            for check in report["checks"]:
-                check_result(
-                    str(check["name"]),
-                    str(check["path"]),
-                    str(check["status"]),
-                    ok=bool(check["ok"]),
-                    detail=str(check["detail"]),
-                )
-
-            total = len(report["checks"])
-            failed = sum(1 for check in report["checks"] if not check["ok"])
-            if not report["valid"]:
-                status("Required corrections:", style="error")
-                for check in report["checks"]:
-                    if not check["ok"]:
-                        status(
-                            f"{check['name']}: {check['detail'] or check['status']}",
-                            style="warning",
+            status(f"Checking configuration: {config.path}.")
+            checks = report["checks"]
+            failed = [check for check in checks if not check["ok"]]
+            if args.verbose:
+                for check in checks:
+                    if check["ok"]:
+                        check_result(
+                            _display_name(check),
+                            str(check["path"]),
+                            "OK",
+                            ok=True,
                         )
-            if report["valid"]:
-                status(
-                    f"MPASWF config preflight: complete — {total} checks passed.",
-                    style="success",
-                )
+            if failed:
+                status(f"{len(failed)} problem(s) to correct:", style="error")
+                for index, check in enumerate(failed, 1):
+                    status(f"{index}. {_display_name(check)}", style="error")
+                    if check["status"] != "NOT_CONFIGURED":
+                        status(f"   Path: {check['path']}", style="muted")
+                    status(
+                        f"   How to fix: {check['detail']}",
+                        style="warning",
+                    )
+                status(f"Configuration not ready: {len(failed)} of {len(checks)} checks failed.", style="error")
             else:
-                status(
-                    f"MPASWF config preflight: failed — {failed} of {total} checks failed.",
-                    style="error",
-                )
+                status(f"Configuration ready: {len(checks)} checks passed.", style="success")
         return 0 if report["valid"] else 1
 
     if args.command == "pbs-smoke":
