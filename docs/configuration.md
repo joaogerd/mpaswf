@@ -5,24 +5,22 @@ MPASWF accepts either:
 1. a platform YAML plus a referenced workflow contract; or
 2. a historical self-contained YAML.
 
-The recommended JACI files are:
+For new meshes, define one site YAML (`jaci-YOURMESH.yaml`) and one
+campaign YAML (`mpas-YOURMESH.yaml`). See
+[generic campaigns](generic-campaigns.md). The existing x1.10242 files are
+historical compatibility examples, not templates for new science.
 
-```text
-configs/jaci-x1.10242.yaml
-configs/mpas-x1.10242.yaml
-```
-
-The public CLI always receives one path:
+The public CLI always receives one site YAML path:
 
 ```bash
-mpaswf run --phase prepare --config configs/jaci-x1.10242.yaml
+mpaswf run --phase prepare --config configs/jaci-YOURMESH.yaml
 ```
 
 ## `workflow`
 
 ```yaml
 workflow:
-  configuration: mpas-x1.10242.yaml
+  configuration: mpas-YOURMESH.yaml
 ```
 
 The referenced workflow YAML is loaded first and the platform YAML is deep-merged
@@ -188,9 +186,11 @@ The filenames are resolved below `paths.cdct_templates_dir`.
 
 Not every declared template is used by every configuration. When
 `static.source` is configured, `templates.static_*` are bypassed. When
-`validation.require_reference_preflight: true`, the maintained x1.10242
-forecast stages the validated tutorial `namelist.atmosphere_240km` and
-`streams.atmosphere_240km` instead of `templates.forecast_*`.
+`validation.require_staging_preflight: true`, forecast inputs are taken from
+`runtime.forecast_namelist` and `runtime.forecast_streams`, not
+`templates.forecast_*`. These must be validated MPAS case files. The original
+x1.10242 tutorial filenames remain accepted **only for legacy configurations**.
+The old `require_reference_preflight` flag is a compatibility alias.
 
 ## `static`
 
