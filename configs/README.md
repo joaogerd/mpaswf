@@ -1,7 +1,11 @@
 # MPASWF configuration files
 
 The recommended configuration separates site/runtime settings from the campaign
-contract while keeping the CLI simple.
+contract while keeping the CLI simple. The x1.10242 files below preserve the
+original tutorial validation experiment only. **For new meshes, create
+your own case-specific configuration** following
+[generic campaigns](../docs/generic-campaigns.md); do not reuse its physics,
+timestep, vertical levels, or data paths.
 
 ```text
 configs/
