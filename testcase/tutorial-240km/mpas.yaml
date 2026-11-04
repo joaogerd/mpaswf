@@ -47,6 +47,7 @@ campaign:
 # initialization time. A valid local file under paths.gfs_dir is reused; the URL
 # is used only when the local file is absent/invalid.
 gfs:
+  acquisition: automatic  # Pinned historic behavior; external reads are configurable.
   # Local GFS filename inside <gfs_dir>/<YYYYMMDDHH>/.
   # Available placeholders include {init_hour}, {init_yyyymmdd},
   # {init_yyyymmddhh}, and the other standard MPASWF time placeholders.
