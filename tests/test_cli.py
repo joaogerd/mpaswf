@@ -24,8 +24,8 @@ def _report(*, valid: bool) -> dict[str, object]:
                 "detail": "",
             },
             {
-                "name": "reference.forecast_streams",
-                "path": "/runtime/streams.atmosphere_240km",
+                "name": "runtime.forecast_streams",
+                "path": "/runtime/streams.atmosphere",
                 "expectation": "file",
                 "status": "MISSING" if not valid else "OK",
                 "ok": valid,
@@ -61,10 +61,10 @@ def test_check_config_human_output_uses_standard_ui(monkeypatch, capsys) -> None
 
     captured = capsys.readouterr().out
     assert result == 1
-    assert "• MPASWF config preflight: /tmp/config.yaml." in captured
-    assert "✓ software.monan_jedi_root — OK" in captured
-    assert "✗ reference.forecast_streams — MISSING" in captured
-    assert "✗ MPASWF config preflight: failed — 1 of 2 checks failed." in captured
+    assert "• Checking configuration: /tmp/config.yaml." in captured
+    assert "software.monan_jedi_root" not in captured
+    assert "✗ 1. runtime.forecast_streams" in captured
+    assert "✗ Configuration not ready: 1 of 2 checks failed." in captured
 
 
 def test_check_config_invalid_yaml_returns_clean_error(monkeypatch, capsys) -> None:
@@ -102,5 +102,29 @@ def test_check_config_lists_failed_check_corrections(monkeypatch, capsys) -> Non
     monkeypatch.setenv("MPASWF_COLOR", "never")
     assert cli.main(["check-config", "--config", "/tmp/config.yaml"]) == 1
     out = capsys.readouterr().out
-    assert "Required corrections:" in out
-    assert "reference.forecast_streams:" in out
+    assert "problem(s) to correct:" in out
+    assert "runtime.forecast_streams" in out
+
+
+def test_check_config_verbose_shows_passed_checks(monkeypatch, capsys) -> None:
+    config = SimpleNamespace(path=Path("/tmp/config.yaml"))
+    monkeypatch.setattr(cli, "load_config", lambda path: config)
+    monkeypatch.setattr(cli, "config_preflight_report", lambda loaded: _report(valid=True))
+    monkeypatch.setenv("MPASWF_COLOR", "never")
+    assert cli.main(["check-config", "--config", "/tmp/config.yaml", "--verbose"]) == 0
+    out = capsys.readouterr().out
+    assert "Configuration ready: 2 checks passed." in out
+    assert "streams.atmosphere" in out
+
+
+def test_check_config_hides_internal_diagnostic_groups(monkeypatch, capsys) -> None:
+    config = SimpleNamespace(path=Path("/tmp/config.yaml"))
+    report = _report(valid=False)
+    report["checks"][1]["name"] = "reference.physics.RRTMG_SW_DATA"
+    monkeypatch.setattr(cli, "load_config", lambda path: config)
+    monkeypatch.setattr(cli, "config_preflight_report", lambda loaded: report)
+    monkeypatch.setenv("MPASWF_COLOR", "never")
+    assert cli.main(["check-config", "--config", "/tmp/config.yaml"]) == 1
+    out = capsys.readouterr().out
+    assert "MPAS physics file:" in out
+    assert "reference.physics." not in out
