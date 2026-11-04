@@ -100,8 +100,19 @@ def forecast_sources(config: WorkflowConfig) -> tuple[Path, Path]:
 
 
 def physics_files(config: WorkflowConfig) -> list[str]:
-    names = value(config, "runtime.physics_files", required=False, default=list(REFERENCE_PHYSICS_FILES))
-    if not isinstance(names, list) or not all(isinstance(n, str) and n and Path(n).name == n for n in names):
+    """Only enforce explicitly selected physics files for new campaigns."""
+    names = value(config, "runtime.physics_files", required=False, default=None)
+    if names is None:
+        legacy = (
+            mesh_name(config) == "x1.10242"
+            and string(config, "static.tutorial_physics_files", required=False, default=None)
+            and string(config, "runtime.forecast_namelist", required=False, default=None) is None
+            and string(config, "runtime.forecast_streams", required=False, default=None) is None
+        )
+        names = list(REFERENCE_PHYSICS_FILES) if legacy else []
+    if not isinstance(names, list) or not all(
+        isinstance(n, str) and n and Path(n).name == n for n in names
+    ):
         raise ValueError("runtime.physics_files must be a list of filenames.")
     return names
 
