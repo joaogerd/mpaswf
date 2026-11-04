@@ -1,7 +1,7 @@
 # MPASWF
 
 
-`mpaswf` prepares the MPAS forecast pairs used by the downstream
+`mpaswf` prepares mesh-independent MPAS forecast pairs used by the downstream
 [MPAS-BMatrix](https://github.com/joaogerd/MPAS-BMatrix) NMC workflow.
 
 ```text
@@ -14,6 +14,22 @@ GFS f000
 ```
 
 It does not compile MPAS/WPS and it does not run the B-matrix calibration.
+
+## Generic campaigns and error messages
+
+New campaigns are **independent of the original MPAS-JEDI tutorial**. Supply
+case-specific MPAS namelist and streams files through the actual YAML fields
+`runtime.forecast_namelist` and `runtime.forecast_streams`; the mesh, physics,
+time step, and vertical levels must all match the experiment.
+
+`mpaswf check-config --config YOUR-SITE.yaml` shows only problems and tells the
+user which real YAML field or file to fix. Add `--verbose` to show successful
+checks or `--json` for machine-readable results. No artificial diagnostic group
+is a YAML setting.
+
+See [Generic campaigns](docs/generic-campaigns.md) for the current setup and
+[Configuration](docs/configuration.md) for complete field descriptions.
+The old 240-km configuration is retained solely for compatibility.
 
 ## Software contract
 
