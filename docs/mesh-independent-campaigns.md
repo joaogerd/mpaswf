@@ -1,7 +1,12 @@
-# Campaigns beyond the tutorial mesh
+# An example of a 15-km campaign
+
+For the general configuration contract, **start with
+[generic campaigns](generic-campaigns.md)**. This page preserves practical
+details of one 15-km case; the provided timestep and number of vertical levels
+are not validated defaults.
 
 The strict init and forecast path uses the campaign mesh and PBS allocation.
-`validation.require_reference_preflight: true` remains the switch for strict
+`validation.require_staging_preflight: true` is the switch for mesh-aware
 staging checks; it no longer means that x1.10242 or 128 ranks are required.
 
 For the supplied 15-km campaign, add this to `mpas-x1.2621442.yaml`:
@@ -66,7 +71,7 @@ dimensions, then expand the campaign. Passing staging tests does not replace
 an MPAS execution on JACI.
 
 The historical x1.10242 configuration can still read the old tutorial filenames
-for compatibility. Other meshes must declare their forecast sources explicitly;
+for compatibility. New campaigns must declare their forecast sources explicitly;
 they cannot silently fall back to the 240-km namelist/streams.
 
 The BMatrix consumer must independently select the same mesh, vertical-level
