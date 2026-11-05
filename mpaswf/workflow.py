@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import tempfile
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -179,26 +180,37 @@ def run_manifest(config: WorkflowConfig) -> Path:
         f"Manifest phase: validating {len(campaign.pairs)} NMC pairs "
         f"({older_lead}h minus {newer_lead}h)."
     )
-    with output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(fields)
-        for pair in campaign.pairs:
-            validate_forecast(config, layout, pair.older)
-            validate_forecast(config, layout, pair.newer)
-            older = load_forecast_run(config, layout, pair.older)
-            newer = load_forecast_run(config, layout, pair.newer)
-            timestamp = pair.valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-            if legacy:
-                writer.writerow([
-                    timestamp, str(older.da_state_path), str(newer.da_state_path),
-                    str(older.restart_path), str(newer.restart_path),
-                ])
-            else:
-                writer.writerow([
-                    timestamp, older_lead, newer_lead,
-                    str(older.da_state_path), str(newer.da_state_path),
-                    str(older.restart_path), str(newer.restart_path),
-                ])
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", newline="", encoding="utf-8", dir=layout.products_dir,
+            prefix=".mpas-forecast-manifest-", suffix=".tsv", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(fields)
+            for pair in campaign.pairs:
+                validate_forecast(config, layout, pair.older)
+                validate_forecast(config, layout, pair.newer)
+                older = load_forecast_run(config, layout, pair.older)
+                newer = load_forecast_run(config, layout, pair.newer)
+                timestamp = pair.valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                if legacy:
+                    writer.writerow([
+                        timestamp, str(older.da_state_path), str(newer.da_state_path),
+                        str(older.restart_path), str(newer.restart_path),
+                    ])
+                else:
+                    writer.writerow([
+                        timestamp, older_lead, newer_lead,
+                        str(older.da_state_path), str(newer.da_state_path),
+                        str(older.restart_path), str(newer.restart_path),
+                    ])
+        temporary.replace(output)
+    except Exception:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     sidecar = output.with_suffix(".json")
     pair_semantics = (
