@@ -93,6 +93,30 @@ def mesh_context(config: WorkflowConfig) -> dict[str, str]:
     return result
 
 
+def initialization_context(config: WorkflowConfig) -> dict[str, str]:
+    """Scientific init dimensions come from the case, never from a tutorial.
+
+    Each field is optional unless referenced by the selected namelist
+    template. Vertical model levels and forcing/aerosol/soil levels describe
+    different grids and must not be inferred from one another.
+    """
+    result = mesh_context(config)
+    for field in ("nsoillevels", "nfglevels", "nfgsoillevels", "gocartlevels"):
+        raw = value(config, f"initialization.levels.{field}", required=False, default=None)
+        if raw is None:
+            continue
+        if isinstance(raw, bool) or not isinstance(raw, int) or (
+            raw < 0 if field == "gocartlevels" else raw < 1
+        ):
+            raise ConfigurationError(
+                f"initialization.levels.{field} must be "
+                + ("a non-negative" if field == "gocartlevels" else "a positive")
+                + " integer appropriate to this experiment."
+            )
+        result[field] = str(raw)
+    return result
+
+
 def staging_preflight_enabled(config: WorkflowConfig) -> bool:
     """Enable mesh-aware checks, accepting the old flag for existing campaigns."""
     setting = value(
