@@ -156,6 +156,14 @@ def test_prepare_init_and_forecast_use_only_selected_mesh(tmp_path):
         "init_namelist": "namelist.init_atmosphere.in",
         "init_streams": "streams.init_atmosphere.in",
     }
+    config.data["initialization"] = {
+        "levels": {
+            "nsoillevels": 4,
+            "nfglevels": 35,
+            "nfgsoillevels": 4,
+            "gocartlevels": 30,
+        }
+    }
     config.data["wps"] = {"output_template": "GFS:{init_date_yyyy_mm_dd_hh}"}
     config.data["products"] = {
         "init_state_template": "x1.2621442.init.{init_date_yyyy_mm_dd_hh_mm_ss}.nc",
