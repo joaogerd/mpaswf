@@ -23,7 +23,7 @@ This directory contains its composed configuration, parameterized init
 templates, and an explicit `run.sh` entrypoint. Copy it to establish another
 mesh or time window; nothing in the generic program loads it implicitly.
 
-See [case-independence audit](docs/case-independence-audit.md) for the list of
+See the [second deep audit](docs/second-genericity-audit.md) for verified mesh and workdir fixes, remaining physical-template restrictions, and numerical validation limits. The earlier [case-independence audit](docs/case-independence-audit.md) for the list of
 former assumptions, intentional NMC constraints and validation limits.
 
 ## Generic campaigns and error messages
