@@ -36,14 +36,38 @@ def mesh_name(config: WorkflowConfig) -> str:
     return name
 
 
+def _run_filename(config: WorkflowConfig, key: str, fallback: str) -> str:
+    """A mesh run filename is configurable, but must remain within the run directory."""
+    raw = string(config, key, required=False, default=None)
+    filename = raw if raw is not None else fallback
+    if not filename or Path(filename).name != filename or filename in {".", ".."}:
+        raise ConfigurationError(
+            f"{key} must be a filename, not a path. Set the staged filename "
+            "matching the destination in static.links."
+        )
+    return filename
+
+
+def mesh_grid_filename(config: WorkflowConfig) -> str:
+    return _run_filename(config, "mesh.grid_filename", f"{mesh_name(config)}.grid.nc")
+
+
+def mesh_graph_filename(config: WorkflowConfig) -> str:
+    return _run_filename(config, "mesh.graph_filename", f"{mesh_name(config)}.graph.info")
+
+
 def partition_prefix(config: WorkflowConfig) -> str:
-    return f"{mesh_name(config)}.graph.info.part."
+    return _run_filename(
+        config, "mesh.partition_prefix", f"{mesh_graph_filename(config)}.part."
+    )
 
 
 def mesh_context(config: WorkflowConfig) -> dict[str, str]:
-    """Additional placeholders, without imposing a vertical resolution."""
+    """Names and dimensions selected by the case, not by a particular resolution."""
     result = {
         "mesh_name": mesh_name(config),
+        "grid_filename": mesh_grid_filename(config),
+        "graph_filename": mesh_graph_filename(config),
         "partition_prefix": partition_prefix(config),
     }
     levels = value(config, "mesh.nvertlevels", required=False, default=None)
