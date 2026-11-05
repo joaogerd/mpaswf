@@ -21,7 +21,8 @@ from .static import load_static_run, validate_static
 from .validation import validate_file
 from .mesh import ensure_campaign_identity
 from .ui import status
-from .mesh import mesh_name, partition_prefix, mpi_ranks, staging_preflight_enabled
+from .mesh import (mesh_name, mesh_grid_filename, mesh_graph_filename,
+                   partition_prefix, mpi_ranks, staging_preflight_enabled)
 
 
 REFERENCE_PHYSICS_FILES = (
@@ -331,8 +332,8 @@ def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
     required_paths = [
         run.run_dir / "init.nc",
         run.run_dir / f"{mesh_name(config)}.invariant.nc",
-        run.run_dir / f"{mesh_name(config)}.grid.nc",
-        run.run_dir / f"{mesh_name(config)}.graph.info",
+        run.run_dir / mesh_grid_filename(config),
+        run.run_dir / mesh_graph_filename(config),
         run.run_dir / f"{partition_prefix(config)}{mpi_ranks(config)}",
         run.run_dir / "namelist.atmosphere",
         run.run_dir / "streams.atmosphere",

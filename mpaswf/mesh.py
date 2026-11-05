@@ -2,6 +2,8 @@
 
 import re
 import json
+import hashlib
+import warnings
 from pathlib import Path
 
 from .config import ConfigurationError, WorkflowConfig, string, value
@@ -15,7 +17,22 @@ def positive_integer(raw: object, key: str) -> int:
 
 
 def mpi_ranks(config: WorkflowConfig) -> int:
-    """PBS mpiprocs is per chunk, not the whole allocation."""
+    """Total model ranks; the local backend currently launches a serial process."""
+    backend = string(config, "execution.backend", required=False, default="pbs")
+    if backend == "local":
+        ranks = positive_integer(
+            value(config, "execution.mpi_ranks", required=False, default=1),
+            "execution.mpi_ranks",
+        )
+        if ranks != 1:
+            raise ConfigurationError(
+                "The local backend runs the MPAS executable directly. "
+                "Set execution.mpi_ranks: 1, or use execution.backend: pbs "
+                "with a matching partition for parallel forecasts."
+            )
+        return 1
+    if backend != "pbs":
+        raise ConfigurationError("execution.backend must be 'local' or 'pbs'.")
     return positive_integer(
         value(config, "pbs.select", required=False, default=1), "pbs.select"
     ) * positive_integer(value(config, "pbs.mpiprocs"), "pbs.mpiprocs")
@@ -36,14 +53,38 @@ def mesh_name(config: WorkflowConfig) -> str:
     return name
 
 
+def _run_filename(config: WorkflowConfig, key: str, fallback: str) -> str:
+    """A mesh run filename is configurable, but must remain within the run directory."""
+    raw = string(config, key, required=False, default=None)
+    filename = raw if raw is not None else fallback
+    if not filename or Path(filename).name != filename or filename in {".", ".."}:
+        raise ConfigurationError(
+            f"{key} must be a filename, not a path. Set the staged filename "
+            "matching the destination in static.links."
+        )
+    return filename
+
+
+def mesh_grid_filename(config: WorkflowConfig) -> str:
+    return _run_filename(config, "mesh.grid_filename", f"{mesh_name(config)}.grid.nc")
+
+
+def mesh_graph_filename(config: WorkflowConfig) -> str:
+    return _run_filename(config, "mesh.graph_filename", f"{mesh_name(config)}.graph.info")
+
+
 def partition_prefix(config: WorkflowConfig) -> str:
-    return f"{mesh_name(config)}.graph.info.part."
+    return _run_filename(
+        config, "mesh.partition_prefix", f"{mesh_graph_filename(config)}.part."
+    )
 
 
 def mesh_context(config: WorkflowConfig) -> dict[str, str]:
-    """Additional placeholders, without imposing a vertical resolution."""
+    """Names and dimensions selected by the case, not by a particular resolution."""
     result = {
         "mesh_name": mesh_name(config),
+        "grid_filename": mesh_grid_filename(config),
+        "graph_filename": mesh_graph_filename(config),
         "partition_prefix": partition_prefix(config),
     }
     levels = value(config, "mesh.nvertlevels", required=False, default=None)
@@ -69,25 +110,75 @@ def staging_preflight_enabled(config: WorkflowConfig) -> bool:
     return setting
 
 
+def _scientific_signature(config: WorkflowConfig) -> str:
+    """Fingerprint fields that affect model inputs and produced forecast products.
+
+    Requested date ranges are deliberately omitted: users may extend an
+    otherwise identical campaign and safely reuse completed forecast cycles.
+    """
+    data = config.data
+    science = {
+        key: data.get(key)
+        for key in (
+            "mesh", "static", "runtime", "gfs", "wps",
+            "templates", "products", "software", "executables",
+        )
+    }
+    pbs = data.get("pbs")
+    if isinstance(pbs, dict):
+        science["decomposition"] = {
+            "select": pbs.get("select", 1),
+            "mpiprocs": pbs.get("mpiprocs"),
+        }
+    campaign = data.get("campaign")
+    if isinstance(campaign, dict):
+        science["lead_hours"] = campaign.get("leads_hours")
+    encoded = json.dumps(science, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def ensure_campaign_identity(config: WorkflowConfig, work_dir: Path) -> None:
-    """Do not reuse neutral forecast filenames from another mesh/campaign."""
+    """Refuse to reuse outputs generated with incompatible scientific settings."""
     if not staging_preflight_enabled(config):
         return
     identity = {
         "mesh": mesh_name(config),
         "nvertlevels": value(config, "mesh.nvertlevels", required=False, default=None),
+        "scientific_sha256": _scientific_signature(config),
     }
     marker = work_dir / ".mpaswf" / "mesh.json"
+    output_dirs = (work_dir / "init", work_dir / "forecast", work_dir / "products")
+    has_outputs = any(path.is_dir() and any(path.iterdir()) for path in output_dirs)
     if marker.is_file():
-        if json.loads(marker.read_text()) != identity:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+        if not isinstance(recorded, dict) or any(
+            recorded.get(key) != identity[key] for key in ("mesh", "nvertlevels")
+        ):
             raise ConfigurationError(
-                f"Work directory belongs to a different mesh or vertical grid: {work_dir}. Use a new paths.work_dir."
+                f"Work directory belongs to a different mesh or vertical grid: {work_dir}. "
+                "Choose a new paths.work_dir."
             )
+        previous = recorded.get("scientific_sha256")
+        if previous is not None and previous != identity["scientific_sha256"]:
+            raise ConfigurationError(
+                f"Work directory contains forecasts from a different scientific configuration: {work_dir}. "
+                "The mesh name may be unchanged, but its physics, timestep, input sources or "
+                "parallel decomposition changed. Choose a new paths.work_dir."
+            )
+        if previous is None:
+            if has_outputs:
+                warnings.warn(
+                    "Existing MPASWF workspace has an older mesh-only identity record. "
+                    "Its scientific inputs cannot be verified against existing outputs. "
+                    "Use a new paths.work_dir to guarantee isolation; this legacy run "
+                    "will continue for backward compatibility.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            else:
+                write_json(marker, identity)
         return
-    if any(
-        path.is_dir() and any(path.iterdir())
-        for path in (work_dir / "init", work_dir / "forecast", work_dir / "products")
-    ):
+    if has_outputs:
         raise ConfigurationError(
             f"Work directory contains unidentified existing outputs: {work_dir}. Use a new paths.work_dir."
         )
