@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import tempfile
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +23,7 @@ from .ui import status
 
 @dataclass(frozen=True)
 class Campaign:
-    """Resolved fixed-shape f024/f048 MPAS campaign."""
+    """Two-lead same-valid-time MPAS campaign."""
 
     pairs: tuple[ProductPair, ...]
 
@@ -123,13 +124,13 @@ def run_init(config: WorkflowConfig, *, submit: bool, wait: bool, force: bool = 
 
 
 def run_forecast(config: WorkflowConfig, *, submit: bool, wait: bool, force: bool = False) -> Path:
-    """Prepare, run, or submit every required f024/f048 MPAS forecast."""
+    """Prepare, run, or submit both configured NMC forecast leads."""
     if wait and not submit:
         raise ValueError("--wait requires --submit.")
     layout = Layout.from_config(config)
     campaign = load_campaign(config)
     requests = unique_forecasts(campaign.pairs)
-    status(f"Forecast phase: {len(requests)} f024/f048 MPAS forecasts.")
+    status(f"Forecast phase: {len(requests)} forecasts with configured NMC lead times.")
     items: list[dict[str, object]] = []
     for index, request in enumerate(requests, start=1):
         status(
@@ -154,54 +155,101 @@ def run_forecast(config: WorkflowConfig, *, submit: bool, wait: bool, force: boo
 
 
 def run_manifest(config: WorkflowConfig) -> Path:
-    """Validate all f024/f048 products and write a neutral MPAS TSV manifest."""
+    """Validate same-valid-time forecast pairs and write a versioned MPAS manifest.
+
+    The existing f024/f048 TSV and sidecar remain v1 for the original case.
+    Other forecast lead pairs are represented by an explicit v2 contract with
+    generic older/newer names and lead durations in every row.
+    """
     layout = Layout.from_config(config)
     campaign = load_campaign(config)
+    if not campaign.pairs:
+        raise ValueError("O período do experimento não gerou pares NMC.")
     ensure_directory(layout.products_dir)
     output = layout.products_dir / "mpas-forecast-manifest.tsv"
-    status(f"Manifest phase: validating {len(campaign.pairs)} f024/f048 pairs.")
-    with output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["valid_time", "f048_state", "f024_state", "f048_restart", "f024_restart"])
-        for pair in campaign.pairs:
-            validate_forecast(config, layout, pair.f024)
-            validate_forecast(config, layout, pair.f048)
-            f024 = load_forecast_run(config, layout, pair.f024)
-            f048 = load_forecast_run(config, layout, pair.f048)
-            writer.writerow(
-                [
-                    pair.valid_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    str(f048.da_state_path),
-                    str(f024.da_state_path),
-                    str(f048.restart_path),
-                    str(f024.restart_path),
-                ]
-            )
-    # The TSV remains the data-plane interface consumed by MPAS-BMatrix.
-    # Its JSON sidecar versions the producer/consumer contract without forcing
-    # the consumer to know any mpaswf source/build/work directory convention.
+    older_lead, newer_lead = campaign.pairs[0].leads_hours
+    legacy = (older_lead, newer_lead) == (48, 24)
+    fields = (
+        ["valid_time", "f048_state", "f024_state", "f048_restart", "f024_restart"]
+        if legacy else [
+            "valid_time", "older_lead_hours", "newer_lead_hours",
+            "older_state", "newer_state", "older_restart", "newer_restart",
+        ]
+    )
+    status(
+        f"Manifest phase: validating {len(campaign.pairs)} NMC pairs "
+        f"({older_lead}h minus {newer_lead}h)."
+    )
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", newline="", encoding="utf-8", dir=layout.products_dir,
+            prefix=".mpas-forecast-manifest-", suffix=".tsv", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(fields)
+            for pair in campaign.pairs:
+                validate_forecast(config, layout, pair.older)
+                validate_forecast(config, layout, pair.newer)
+                older = load_forecast_run(config, layout, pair.older)
+                newer = load_forecast_run(config, layout, pair.newer)
+                timestamp = pair.valid_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                if legacy:
+                    writer.writerow([
+                        timestamp, str(older.da_state_path), str(newer.da_state_path),
+                        str(older.restart_path), str(newer.restart_path),
+                    ])
+                else:
+                    writer.writerow([
+                        timestamp, older_lead, newer_lead,
+                        str(older.da_state_path), str(newer.da_state_path),
+                        str(older.restart_path), str(newer.restart_path),
+                    ])
+        temporary.replace(output)
+    except Exception:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     sidecar = output.with_suffix(".json")
+    pair_semantics = (
+        {
+            "valid_time": "shared forecast valid time T",
+            "f048_state": "MPAS da_state initialized at T-48h and valid at T",
+            "f024_state": "MPAS da_state initialized at T-24h and valid at T",
+            "f048_restart": "validated restart product from the f048 forecast",
+            "f024_restart": "validated restart product from the f024 forecast",
+        }
+        if legacy else {
+            "valid_time": "shared forecast valid time T",
+            "older_lead_hours": "longer forecast duration in hours",
+            "newer_lead_hours": "shorter forecast duration in hours",
+            "older_state": "MPAS da_state at T from older initialization",
+            "newer_state": "MPAS da_state at T from newer initialization",
+            "older_restart": "restart output of older forecast",
+            "newer_restart": "restart output of newer forecast",
+        }
+    )
     payload = {
-        "schema_version": 1,
-        "contract": "monan-nmc-forecast-pairs-v1",
+        "schema_version": 1 if legacy else 2,
+        "contract": "monan-nmc-forecast-pairs-v1" if legacy else "monan-nmc-forecast-pairs-v2",
         "producer": "mpaswf",
         "consumer": "MPAS-BMatrix",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "manifest": output.name,
         "manifest_format": "tsv",
         "manifest_sha256": digest,
-        "columns": ["valid_time", "f048_state", "f024_state", "f048_restart", "f024_restart"],
+        "columns": fields,
         "pair_count": len(campaign.pairs),
-        "pair_semantics": {
-            "valid_time": "shared forecast valid time T",
-            "f048_state": "MPAS da_state initialized at T-48h and valid at T",
-            "f024_state": "MPAS da_state initialized at T-24h and valid at T",
-            "f048_restart": "validated restart product from the f048 forecast",
-            "f024_restart": "validated restart product from the f024 forecast",
-        },
+        "pair_semantics": pair_semantics,
     }
+    if not legacy:
+        payload["leads_hours"] = {"older": older_lead, "newer": newer_lead}
     sidecar.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    _record_phase(layout, "manifest", {"manifest": str(output), "contract": str(sidecar), "pairs": len(campaign.pairs), "state": "completed"})
+    _record_phase(layout, "manifest", {
+        "manifest": str(output), "contract": str(sidecar),
+        "pairs": len(campaign.pairs), "state": "completed",
+    })
     status(f"Manifest phase: wrote {output} and contract {sidecar}.")
     return output

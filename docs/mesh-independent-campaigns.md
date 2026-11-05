@@ -76,3 +76,60 @@ they cannot silently fall back to the 240-km namelist/streams.
 
 The BMatrix consumer must independently select the same mesh, vertical-level
 count and scientific contract. See its `docs/mesh-independent-campaigns.md`.
+
+## Versioned NMC forecast lead pairs
+
+MPASWF no longer assumes the historic f024/f048 lead pair in campaign
+generation. Declare any **two distinct positive integer durations in hours**:
+
+```yaml
+campaign:
+  start_valid_time: "2027-01-01T00:00:00Z"
+  end_valid_time: "2027-01-10T00:00:00Z"
+  interval_hours: 12
+  leads_hours: [12, 36]
+
+runtime:
+  config_dt: 135  # Case-specific and scientifically validated, not a default.
+  output_interval: "12:00:00"
+```
+
+Both forecasts have exactly the same final valid time. The longer lead
+starts earlier and is subtracted from the shorter lead in the NMC/BFLOW
+consumer (older-minus-newer). Model timestep, mesh and horizontal
+resolution are independent settings.
+
+For the MPAS-source-forecast staging path, the configured output interval
+must divide **both lead durations exactly**, otherwise the selected MPAS
+streams will not necessarily write at the required forecast valid time.
+MPASWF checks this before launching that forecast.
+
+The original `campaign.leads_hours: [24, 48]` continues to emit the
+unchanged `monan-nmc-forecast-pairs-v1` TSV and JSON sidecar.
+
+Other lead pairs emit `monan-nmc-forecast-pairs-v2`, with these TSV
+columns:
+
+```text
+valid_time
+older_lead_hours
+newer_lead_hours
+older_state
+newer_state
+older_restart
+newer_restart
+```
+
+The sidecar includes `schema_version: 2`, the actual lead pair,
+`pair_count`, exact column names, and a SHA-256 binding to the TSV.
+No consumer needs to reconstruct MPASWF directories or infer a forecast
+duration from a filename. Use the matching MPAS-BMatrix v2 reader and
+configure `bflow.nmc.older_lead_hours` and
+`bflow.nmc.newer_lead_hours` to the same pair.
+
+**Scientific boundary:** this generalizes the *two-lead NMC pairing*,
+not arbitrary ensemble statistics, FGAT or multi-lead variational schemes.
+The value of B may change substantially with lead pair and the resulting
+samples require independent statistical validation. The CI verifies
+contract serialization and input geometry, not the numerical quality of
+the resulting covariance on JACI.

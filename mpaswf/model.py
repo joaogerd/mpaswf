@@ -110,11 +110,35 @@ class ForecastRequest:
 
 @dataclass(frozen=True)
 class ProductPair:
-    """The f024 and f048 forecasts associated with one valid time."""
+    """Two forecasts with the same valid time and distinct lead times.
+
+    Named older/newer fields describe the scientific comparison, independent
+    of the forecast durations. The original f024/f048 accessors remain
+    available strictly for legacy 24/48-hour cases.
+    """
 
     valid_time: datetime
-    f024: ForecastRequest
-    f048: ForecastRequest
+    newer: ForecastRequest
+    older: ForecastRequest
+
+    @property
+    def f024(self) -> ForecastRequest:
+        """Compatibility accessor only for the original 24-hour forecast."""
+        if self.newer.lead_hours != 24:
+            raise AttributeError("This NMC pair has no f024 forecast; use newer.")
+        return self.newer
+
+    @property
+    def f048(self) -> ForecastRequest:
+        """Compatibility accessor only for the original 48-hour forecast."""
+        if self.older.lead_hours != 48:
+            raise AttributeError("This NMC pair has no f048 forecast; use older.")
+        return self.older
+
+    @property
+    def leads_hours(self) -> tuple[int, int]:
+        """Return the NMC lead pair as (older, newer)."""
+        return self.older.lead_hours, self.newer.lead_hours
 
 
 def valid_times(start: datetime, end: datetime, interval_hours: int) -> list[datetime]:
@@ -147,49 +171,40 @@ def valid_times(start: datetime, end: datetime, interval_hours: int) -> list[dat
 
 
 def build_pairs(start: datetime, end: datetime, interval_hours: int, leads_hours: Iterable[int]) -> list[ProductPair]:
-    """Build f024/f048 product pairs for all requested valid times.
+    """Build two same-valid-time forecasts for any valid positive lead pair.
 
-    Parameters
-    ----------
-    start, end : datetime
-        Inclusive campaign valid-time bounds.
-    interval_hours : int
-        Time spacing between valid products.
-    leads_hours : iterable of int
-        Required lead times. The initial simple implementation requires 24 and
-        48 hours exactly because the output manifest is explicitly f024/f048.
-
-    Returns
-    -------
-    list[ProductPair]
-        One pair for each valid time.
-
-    Raises
-    ------
-    ValueError
-        Raised when the requested leads are not exactly 24 and 48 hours.
+    The documented NMC older-minus-newer semantics are unchanged. The v1
+    manifest remains byte-compatible for [24,48]; other lead pairs use a new
+    explicitly versioned manifest contract instead of reusing f024/f048 names.
     """
-    unique_leads = sorted(set(leads_hours))
-    if unique_leads != [24, 48]:
-        raise ValueError("The first mpaswf implementation requires campaign.leads_hours: [24, 48].")
-
+    leads = list(leads_hours)
+    if len(leads) != 2 or any(
+        isinstance(lead, bool) or not isinstance(lead, int) or lead <= 0
+        for lead in leads
+    ) or leads[0] == leads[1]:
+        raise ValueError(
+            "campaign.leads_hours must contain exactly two distinct positive integer "
+            "forecast durations in hours, for example [12, 36]."
+        )
+    newer_lead, older_lead = sorted(leads)
     pairs: list[ProductPair] = []
     for valid_time in valid_times(start, end, interval_hours):
-        f024 = ForecastRequest(valid_time - timedelta(hours=24), valid_time, 24)
-        f048 = ForecastRequest(valid_time - timedelta(hours=48), valid_time, 48)
-        pairs.append(ProductPair(valid_time=valid_time, f024=f024, f048=f048))
+        newer = ForecastRequest(valid_time - timedelta(hours=newer_lead), valid_time, newer_lead)
+        older = ForecastRequest(valid_time - timedelta(hours=older_lead), valid_time, older_lead)
+        pairs.append(ProductPair(valid_time=valid_time, newer=newer, older=older))
     return pairs
 
 
 def unique_initialization_times(pairs: Iterable[ProductPair]) -> list[datetime]:
     """Return sorted unique initialization times needed by all pairs."""
-    values = {pair.f024.init_time for pair in pairs}
-    values.update(pair.f048.init_time for pair in pairs)
+    values = {request.init_time for pair in pairs for request in (pair.older, pair.newer)}
     return sorted(values)
 
 
 def unique_forecasts(pairs: Iterable[ProductPair]) -> list[ForecastRequest]:
-    """Return sorted unique forecast requests required by all pairs."""
-    values = {(pair.f024.init_time, pair.f024.lead_hours): pair.f024 for pair in pairs}
-    values.update({(pair.f048.init_time, pair.f048.lead_hours): pair.f048 for pair in pairs})
+    """Return sorted unique forecasts for both leads at every valid time."""
+    values = {
+        (request.init_time, request.lead_hours): request
+        for pair in pairs for request in (pair.older, pair.newer)
+    }
     return [values[key] for key in sorted(values)]
