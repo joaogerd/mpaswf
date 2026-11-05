@@ -10,7 +10,7 @@ from xml.etree import ElementTree as ET
 
 from .assets import stage_common_links
 from .commands import run_command
-from .config import WorkflowConfig, render, resolve_path, string, value
+from .config import WorkflowConfig, render, resolve_path, string, value, forecast_input_mode
 from .files import ensure_link, is_valid_file, render_template, write_json
 from .init import load_init_run, validate_init
 from .layout import Layout
@@ -71,8 +71,8 @@ def load_forecast_run(config: WorkflowConfig, layout: Layout, request: ForecastR
 
 
 def _reference_enabled(config: WorkflowConfig) -> bool:
-    """Backward-compatible internal name for mesh-aware forecast staging."""
-    return staging_preflight_enabled(config)
+    """Compatibility alias: forecast input strategy is not a validation toggle."""
+    return forecast_input_mode(config) == "sources"
 
 
 def _tutorial_dir(config: WorkflowConfig) -> Path:
@@ -326,7 +326,7 @@ def _render_reference_forecast(
 
 def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
     """Fail before PBS if the configured NMC forecast contract is incomplete."""
-    if not _reference_enabled(config):
+    if not staging_preflight_enabled(config):
         return
 
     required_paths = [

@@ -205,18 +205,21 @@ def test_reference_path_reports_missing_real_forecast_input(tmp_path: Path) -> N
 
 
 
-def test_reference_path_requires_tutorial_directory_configuration(tmp_path: Path) -> None:
+def test_preflight_option_does_not_select_forecast_sources(tmp_path: Path) -> None:
     config = _config(tmp_path)
     config.data["validation"] = {"require_reference_preflight": True}
+    # The old input bundle is no longer selected: choose template mode regardless
+    # of how strict the user's validation policy is.
     del config.data["static"]["tutorial_physics_files"]
 
     report = config_preflight_report(config)
 
-    assert report["valid"] is False
+    assert report["valid"] is True
     checks = {item["name"]: item for item in report["checks"]}
-    assert checks["runtime.forecast_namelist"]["status"] == "NOT_CONFIGURED"
-    assert checks["runtime.forecast_streams"]["status"] == "NOT_CONFIGURED"
-    assert "runtime.forecast_sources" not in checks
+    assert checks["templates.forecast_namelist"]["status"] == "OK"
+    assert checks["templates.forecast_streams"]["status"] == "OK"
+    assert "runtime.forecast_namelist" not in checks
+    assert "runtime.forecast_streams" not in checks
 
 
 def test_external_gfs_directory_needs_read_only_access(tmp_path: Path) -> None:
@@ -245,15 +248,16 @@ def test_forecast_sources_error_explains_missing_yaml_entries(tmp_path: Path) ->
     config.data["validation"] = {"require_reference_preflight": True}
     config.data["mesh"] = {"name": "x1.2621442"}
     config.data["static"].pop("tutorial_physics_files")
+    # Explicitly selecting only one source file cannot fall back to templates.
+    config.data["runtime"] = {"forecast_namelist": str(tmp_path / "case/namelist.atmosphere")}
     report = config_preflight_report(config)
     checks = {item["name"]: item for item in report["checks"]}
     assert "runtime.forecast_sources" not in checks
-    for field in ("runtime.forecast_namelist", "runtime.forecast_streams"):
-        failure = checks[field]
-        assert failure["status"] == "NOT_CONFIGURED"
-        assert "x1.2621442" in failure["detail"]
-        assert field in failure["detail"]
-        assert str(config.path) in failure["path"]
+    failure = checks["runtime.forecast_streams"]
+    assert failure["status"] == "NOT_CONFIGURED"
+    assert "x1.2621442" in failure["detail"]
+    assert "runtime.forecast_streams" in failure["detail"]
+    assert str(config.path) in failure["path"]
 
 
 def test_preflight_missing_file_detail_preserves_machine_status(tmp_path: Path) -> None:

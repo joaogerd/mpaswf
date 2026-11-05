@@ -8,7 +8,7 @@ from pathlib import Path
 import shlex
 from typing import Iterable
 
-from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value
+from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value, forecast_input_mode
 from .forecast import (
     forecast_sources, stream_list_directory, stream_lists,
     physics_files,
@@ -285,9 +285,9 @@ def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[Resourc
             name = string(config, key) or ""
             yield _required_file(key, layout.templates_dir / name)
 
-    # The strict forecast stages its explicitly configured source files.
-    reference_forecast = staging_preflight_enabled(config)
-    if not reference_forecast:
+    # Source selection is independent of whether optional strict staging
+    # assertions are enabled. Check only templates actually used by the case.
+    if forecast_input_mode(config) == "templates":
         for key in ("templates.forecast_namelist", "templates.forecast_streams"):
             name = string(config, key) or ""
             yield _required_file(key, layout.templates_dir / name)
@@ -304,8 +304,9 @@ def _static_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceC
         }
         yield _required_file("static.source", resolve_path(config, raw_source, context))
 
-    reference_forecast = staging_preflight_enabled(config)
-    if reference_forecast:
+    # Validate selected MPAS input sources even when expensive strict checks
+    # are disabled; otherwise the forecast may change staging strategy silently.
+    if forecast_input_mode(config) == "sources":
         nml_setting = string(config, "runtime.forecast_namelist", required=False, default=None)
         xml_setting = string(config, "runtime.forecast_streams", required=False, default=None)
         legacy_case = (

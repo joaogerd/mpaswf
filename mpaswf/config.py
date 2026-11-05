@@ -287,6 +287,24 @@ def render(template: str, context: Mapping[str, str]) -> str:
         raise ConfigurationError(f"Unknown template placeholder {error.args[0]!r} in {template!r}") from error
 
 
+def forecast_input_mode(config: WorkflowConfig) -> str:
+    """Choose source-file staging independently of optional validation checks.
+
+    A case with one or both MPAS atmosphere source files selects source mode.
+    Missing partners are then reported as configuration errors rather than
+    silently switching to a different forecast preparation strategy.
+    """
+    if any(
+        string(config, key, required=False, default=None) is not None
+        for key in ("runtime.forecast_namelist", "runtime.forecast_streams")
+    ):
+        return "sources"
+    # Explicitly selected historical input bundle, never loaded implicitly.
+    if string(config, "static.tutorial_physics_files", required=False, default=None) is not None:
+        return "sources"
+    return "templates"
+
+
 def validate_config(config: WorkflowConfig) -> None:
     """Perform the intentionally small MPASWF schema validation.
 
@@ -317,17 +335,22 @@ def validate_config(config: WorkflowConfig) -> None:
         "products.restart_template",
         "products.da_state_template",
         "templates.wps",
-        "templates.static_namelist",
-        "templates.static_streams",
         "templates.init_namelist",
         "templates.init_streams",
-        "templates.forecast_namelist",
-        "templates.forecast_streams",
         "static.reference_time",
         "static.product_template",
         "execution.backend",
     ):
         string(config, key)
+
+    # Do not require unused templates. Source-file forecasts need actual
+    # MPAS atmosphere files; template forecasts need the corresponding templates.
+    if string(config, "static.source", required=False, default=None) is None:
+        string(config, "templates.static_namelist")
+        string(config, "templates.static_streams")
+    if forecast_input_mode(config) == "templates":
+        string(config, "templates.forecast_namelist")
+        string(config, "templates.forecast_streams")
 
     monan_root = string(config, "software.monan_jedi_install_root", required=False, default=None)
     if monan_root is None:

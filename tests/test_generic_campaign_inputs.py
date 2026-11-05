@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from mpaswf.config import WorkflowConfig
+from mpaswf.config import WorkflowConfig, forecast_input_mode
 from mpaswf.forecast import forecast_sources, stream_list_directory, stream_lists
 from mpaswf.mesh import staging_preflight_enabled
 
@@ -58,3 +58,17 @@ def test_new_validation_key_overrides_legacy_key(tmp_path: Path) -> None:
     assert staging_preflight_enabled(config) is False
     config.data["validation"]["require_staging_preflight"] = True
     assert staging_preflight_enabled(config) is True
+
+
+def test_input_mode_is_not_controlled_by_preflight(tmp_path: Path) -> None:
+    from mpaswf.forecast import _reference_enabled
+    config = _config(tmp_path)
+    assert forecast_input_mode(config) == 'templates'
+    for strict in (True, False):
+        config.data['validation']['require_staging_preflight'] = strict
+        assert _reference_enabled(config) is False
+    config.data['runtime']['forecast_namelist'] = 'namelist.atmosphere'
+    for strict in (True, False):
+        config.data['validation']['require_staging_preflight'] = strict
+        assert forecast_input_mode(config) == 'sources'
+        assert _reference_enabled(config) is True

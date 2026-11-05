@@ -118,3 +118,28 @@ behaviors are **not** templates for new campaigns.
 Refer to [configuration.md](configuration.md) and
 [jaci-quasi-uniform-meshes.md](jaci-quasi-uniform-meshes.md) for general
 settings and available mesh assets.
+
+## Forecast input selection is independent of validation
+
+MPASWF selects the staging strategy from the *actual configured inputs*:
+
+- Set **both** `runtime.forecast_namelist` and `runtime.forecast_streams`
+  to stage complete MPAS atmosphere input files. Their physical settings
+  remain selected by the campaign.
+- If neither is provided, the forecast is rendered from the selected
+  `templates.forecast_namelist` and `templates.forecast_streams`.
+  In this mode, both templates must exist.
+- Selecting only one source file is a configuration error; the other source
+  is reported as missing. The program never silently switches to a template.
+- `validation.require_staging_preflight` controls strict extra assertions,
+  **not** input selection or forecast physics. Turning it off does not make
+  missing source files valid.
+- Historical configurations that explicitly declare
+  `static.tutorial_physics_files` retain a bounded compatibility path.
+  No new campaign should use that legacy interface; the archived
+  `testcase/tutorial-240km` declares both sources explicitly.
+
+A supplied precomputed `static.source` also makes static-generation
+templates unnecessary. The configuration schema and preflight no longer
+require those unused templates.
+
