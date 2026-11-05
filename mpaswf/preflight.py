@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import os
 from pathlib import Path
 import shlex
+from string import Formatter
 from typing import Iterable
 
 from .config import ConfigurationError, WorkflowConfig, render, resolve_path, string, value, forecast_input_mode
@@ -14,7 +15,7 @@ from .forecast import (
     physics_files,
 )
 from .layout import Layout
-from .mesh import mesh_name, staging_preflight_enabled
+from .mesh import mesh_name, staging_preflight_enabled, initialization_context
 from .software import (
     atmosphere_share,
     installed_executable,
@@ -265,6 +266,50 @@ def _bootstrap_checks(config: WorkflowConfig) -> Iterable[ResourceCheck]:
             yield _required_dir(f"pbs.bootstrap[{index}].module_use", path)
 
 
+def _renderable_template(config: WorkflowConfig, layout: Layout, key: str, path: Path) -> ResourceCheck:
+    """Catch unavailable format fields before launching expensive MPAS work."""
+    present = _required_file(key, path)
+    if not present.ok:
+        return present
+    try:
+        from .model import parse_time
+        sample_time = parse_time(string(config, "static.reference_time") or "")
+        ctx = layout.context(sample_time, sample_time, 24, layout.work_dir)
+        ctx.update(initialization_context(config))
+        ctx.update({
+            "static_state": "static.nc", "static_filename": "static.nc",
+            "init_state": "init.nc", "init_filename": "init.nc",
+            "wps_file": "GFS:sample", "restart_path": "restart.nc",
+            "da_state_path": "mpasout.nc",
+        })
+        fields = {
+            name.split(".", 1)[0].split("[", 1)[0]
+            for _, name, _, _ in Formatter().parse(path.read_text(encoding="utf-8"))
+            if name
+        }
+    except (ValueError, ConfigurationError, OSError) as error:
+        return ResourceCheck(key, path, "renderable template", "INVALID", False, str(error))
+
+    missing = sorted(fields.difference(ctx))
+    if not missing:
+        return present
+    choices = []
+    for name in missing:
+        if name == "nvertlevels":
+            choices.append("mesh.nvertlevels")
+        elif name in {"nsoillevels", "nfglevels", "nfgsoillevels", "gocartlevels"}:
+            choices.append(f"initialization.levels.{name}")
+        else:
+            choices.append(f"a supported value for {name}")
+    return ResourceCheck(
+        key, path, "renderable template", "INVALID", False,
+        "O template MPAS selecionado usa campos que o experimento não definiu: "
+        + ", ".join(missing)
+        + ". Configure no YAML: " + ", ".join(choices)
+        + ". Ou selecione um template que não exija esses campos."
+    )
+
+
 def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[ResourceCheck]:
     """Validate only templates used by the active configuration path."""
     yield _required_dir("paths.cdct_templates_dir", layout.templates_dir)
@@ -276,7 +321,7 @@ def _template_checks(config: WorkflowConfig, layout: Layout) -> Iterable[Resourc
     )
     for key in always_used:
         name = string(config, key) or ""
-        yield _required_file(key, layout.templates_dir / name)
+        yield _renderable_template(config, layout, key, layout.templates_dir / name)
 
     # Static templates are bypassed when a validated external invariant is
     # supplied through static.source.
