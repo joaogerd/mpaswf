@@ -18,7 +18,7 @@ from .static import load_static_run, validate_static
 from .wps import wps_output_path
 from .mesh import ensure_campaign_identity
 from .ui import status
-from .mesh import mesh_context, partition_prefix, mpi_ranks, staging_preflight_enabled
+from .mesh import mesh_context, initialization_context, partition_prefix, mpi_ranks, staging_preflight_enabled
 
 
 @dataclass(frozen=True)
@@ -95,8 +95,8 @@ def prepare_init(config: WorkflowConfig, layout: Layout, init_time: datetime, *,
     context = layout.context(init_time, init_time, 0, run.run_dir)
     wps_file = wps_output_path(config, layout, init_time)
     validate_file(wps_file, minimum_size)
-    if staging_preflight_enabled(config):
-        context.update(mesh_context(config))
+    # Rendered geometry never depends on enabling optional preflight.
+    context.update(initialization_context(config))
     context['static_filename'] = render(string(config, 'static.product_template') or '', context)
     context['init_filename'] = run.state_path.name
     context.update({"wps_file": str(wps_file), "init_state": str(run.state_path)})
