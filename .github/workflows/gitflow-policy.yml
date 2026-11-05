@@ -1,0 +1,28 @@
+name: Git Flow branch policy
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate-flow:
+    name: Validate source and target branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce main and develop integration flow
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$BASE" == "main" ]]; then
+            if [[ "$HEAD" != "develop" ]]; then
+              echo 'ERRO: main recebe exclusivamente PRs originados em develop.' >&2
+              exit 1
+            fi
+          elif [[ "$BASE" == "develop" ]]; then
+            if [[ "$HEAD" != feature/* ]]; then
+              echo 'ERRO: develop recebe exclusivamente PRs originados em feature/*.' >&2
+              exit 1
+            fi
+          fi
