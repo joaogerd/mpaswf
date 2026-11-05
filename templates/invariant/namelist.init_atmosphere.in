@@ -8,10 +8,10 @@
 /
 &dimensions
     config_nvertlevels = {nvertlevels}
-    config_nsoillevels = 4
-    config_nfglevels = 35
-    config_nfgsoillevels = 4
-    config_gocartlevels = 30
+    config_nsoillevels = {nsoillevels}
+    config_nfglevels = {nfglevels}
+    config_nfgsoillevels = {nfgsoillevels}
+    config_gocartlevels = {gocartlevels}
 /
 &data_sources
     config_met_prefix = 'GFS'
