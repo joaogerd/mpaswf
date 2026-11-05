@@ -2,6 +2,8 @@
 
 import re
 import json
+import hashlib
+import warnings
 from pathlib import Path
 
 from .config import ConfigurationError, WorkflowConfig, string, value
@@ -93,25 +95,75 @@ def staging_preflight_enabled(config: WorkflowConfig) -> bool:
     return setting
 
 
+def _scientific_signature(config: WorkflowConfig) -> str:
+    """Fingerprint fields that affect model inputs and produced forecast products.
+
+    Requested date ranges are deliberately omitted: users may extend an
+    otherwise identical campaign and safely reuse completed forecast cycles.
+    """
+    data = config.data
+    science = {
+        key: data.get(key)
+        for key in (
+            "mesh", "static", "runtime", "gfs", "wps",
+            "templates", "products", "software", "executables",
+        )
+    }
+    pbs = data.get("pbs")
+    if isinstance(pbs, dict):
+        science["decomposition"] = {
+            "select": pbs.get("select", 1),
+            "mpiprocs": pbs.get("mpiprocs"),
+        }
+    campaign = data.get("campaign")
+    if isinstance(campaign, dict):
+        science["lead_hours"] = campaign.get("leads_hours")
+    encoded = json.dumps(science, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def ensure_campaign_identity(config: WorkflowConfig, work_dir: Path) -> None:
-    """Do not reuse neutral forecast filenames from another mesh/campaign."""
+    """Refuse to reuse outputs generated with incompatible scientific settings."""
     if not staging_preflight_enabled(config):
         return
     identity = {
         "mesh": mesh_name(config),
         "nvertlevels": value(config, "mesh.nvertlevels", required=False, default=None),
+        "scientific_sha256": _scientific_signature(config),
     }
     marker = work_dir / ".mpaswf" / "mesh.json"
+    output_dirs = (work_dir / "init", work_dir / "forecast", work_dir / "products")
+    has_outputs = any(path.is_dir() and any(path.iterdir()) for path in output_dirs)
     if marker.is_file():
-        if json.loads(marker.read_text()) != identity:
+        recorded = json.loads(marker.read_text(encoding="utf-8"))
+        if not isinstance(recorded, dict) or any(
+            recorded.get(key) != identity[key] for key in ("mesh", "nvertlevels")
+        ):
             raise ConfigurationError(
-                f"Work directory belongs to a different mesh or vertical grid: {work_dir}. Use a new paths.work_dir."
+                f"Work directory belongs to a different mesh or vertical grid: {work_dir}. "
+                "Choose a new paths.work_dir."
             )
+        previous = recorded.get("scientific_sha256")
+        if previous is not None and previous != identity["scientific_sha256"]:
+            raise ConfigurationError(
+                f"Work directory contains forecasts from a different scientific configuration: {work_dir}. "
+                "The mesh name may be unchanged, but its physics, timestep, input sources or "
+                "parallel decomposition changed. Choose a new paths.work_dir."
+            )
+        if previous is None:
+            if has_outputs:
+                warnings.warn(
+                    "Existing MPASWF workspace has an older mesh-only identity record. "
+                    "Its scientific inputs cannot be verified against existing outputs. "
+                    "Use a new paths.work_dir to guarantee isolation; this legacy run "
+                    "will continue for backward compatibility.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+            else:
+                write_json(marker, identity)
         return
-    if any(
-        path.is_dir() and any(path.iterdir())
-        for path in (work_dir / "init", work_dir / "forecast", work_dir / "products")
-    ):
+    if has_outputs:
         raise ConfigurationError(
             f"Work directory contains unidentified existing outputs: {work_dir}. Use a new paths.work_dir."
         )
