@@ -250,6 +250,32 @@ def _stage_reference_runtime(config: WorkflowConfig, run: ForecastRun) -> tuple[
     return namelist_source, streams_source
 
 
+def _validated_output_interval(config: WorkflowConfig, lead_hours: int) -> str:
+    """Ensure the selected MPAS output cadence includes the final NMC valid time."""
+    raw = string(config, "runtime.output_interval", required=False, default="24:00:00")
+    if not raw:
+        raise ValueError(
+            "Defina runtime.output_interval para a frequência dos arquivos de "
+            "previsão MPAS; o intervalo deve atingir o horário válido do NMC."
+        )
+    match = re.fullmatch(r"(?:(\d+)_)?(\d{1,3}):([0-5]\d):([0-5]\d)", raw)
+    if match is None:
+        raise ValueError(
+            "runtime.output_interval deve usar HH:MM:SS ou D_HH:MM:SS, "
+            "por exemplo 12:00:00 para previsões de 12 e 36 horas."
+        )
+    days, hours, minutes, seconds = match.groups()
+    duration = (int(days or 0) * 24 + int(hours)) * 3600 + int(minutes) * 60 + int(seconds)
+    if duration < 1 or (lead_hours * 3600) % duration != 0:
+        raise ValueError(
+            f"O intervalo de saída MPAS ({raw}) não produz um arquivo no "
+            f"horário final da previsão de {lead_hours} horas. "
+            "Defina runtime.output_interval como divisor exato das durações "
+            "de previsão selecionadas, ou ajuste campaign.leads_hours."
+        )
+    return raw
+
+
 def _render_reference_forecast(
     config: WorkflowConfig,
     run: ForecastRun,
@@ -259,7 +285,7 @@ def _render_reference_forecast(
     """Render the configured NMC forecast settings for one request."""
     request = run.request
     config_dt = int(value(config, "runtime.config_dt"))
-    output_interval = string(config, "runtime.output_interval") or "24:00:00"
+    output_interval = _validated_output_interval(config, request.lead_hours)
     start_time = request.init_time.strftime("%Y-%m-%d_%H:%M:%S")
     run_duration = f"{request.lead_hours // 24}_{request.lead_hours % 24:02d}:00:00"
 
@@ -345,8 +371,8 @@ def _validate_reference_setup(config: WorkflowConfig, run: ForecastRun) -> None:
             raise FileNotFoundError(f"MPAS forecast preflight input does not exist: {path}")
 
     config_dt = int(value(config, "runtime.config_dt"))
-    output_interval = string(config, "runtime.output_interval") or "24:00:00"
     request = run.request
+    output_interval = _validated_output_interval(config, request.lead_hours)
     start_time = request.init_time.strftime("%Y-%m-%d_%H:%M:%S")
     run_duration = f"{request.lead_hours // 24}_{request.lead_hours % 24:02d}:00:00"
     namelist = (run.run_dir / "namelist.atmosphere").read_text(encoding="utf-8", errors="replace")
