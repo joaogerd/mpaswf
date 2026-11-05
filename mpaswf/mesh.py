@@ -17,7 +17,22 @@ def positive_integer(raw: object, key: str) -> int:
 
 
 def mpi_ranks(config: WorkflowConfig) -> int:
-    """PBS mpiprocs is per chunk, not the whole allocation."""
+    """Total model ranks; the local backend currently launches a serial process."""
+    backend = string(config, "execution.backend", required=False, default="pbs")
+    if backend == "local":
+        ranks = positive_integer(
+            value(config, "execution.mpi_ranks", required=False, default=1),
+            "execution.mpi_ranks",
+        )
+        if ranks != 1:
+            raise ConfigurationError(
+                "The local backend runs the MPAS executable directly. "
+                "Set execution.mpi_ranks: 1, or use execution.backend: pbs "
+                "with a matching partition for parallel forecasts."
+            )
+        return 1
+    if backend != "pbs":
+        raise ConfigurationError("execution.backend must be 'local' or 'pbs'.")
     return positive_integer(
         value(config, "pbs.select", required=False, default=1), "pbs.select"
     ) * positive_integer(value(config, "pbs.mpiprocs"), "pbs.mpiprocs")
