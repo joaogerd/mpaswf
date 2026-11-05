@@ -25,7 +25,7 @@ from .model import parse_time
 from .pbs import render_pbs_job, submit_pbs, wait_pbs
 from .software import installed_executable
 from .validation import validate_file
-from .mesh import ensure_campaign_identity
+from .mesh import ensure_campaign_identity, initialization_context
 from .ui import status
 
 
@@ -101,6 +101,7 @@ def prepare_static(
     status(f"Static MPAS product: staging interpolation in {run.run_dir}.")
     ensure_directory(run.run_dir)
     context = layout.context(run.reference_time, run.reference_time, 0, run.run_dir)
+    context.update(initialization_context(config))
     context.update({"static_state": str(run.state_path)})
 
     stage_common_links(config, run.run_dir, context)
