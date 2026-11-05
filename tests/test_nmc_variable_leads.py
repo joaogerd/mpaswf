@@ -88,3 +88,11 @@ def test_variable_lead_manifest_v2_maintains_producer_integrity(tmp_path):
     assert rows[0]["older_state"].endswith("/2026123012/f036/mpasout.2027-01-01_00.00.00.nc")
     assert rows[0]["newer_state"].endswith("/2026123112/f012/mpasout.2027-01-01_00.00.00.nc")
     assert len(rows) == 3
+    original = manifest.read_bytes()
+    missing = load_forecast_run(
+        config, layout, load_campaign(config).pairs[-1].newer
+    ).da_state_path
+    missing.unlink()
+    with pytest.raises((FileNotFoundError, RuntimeError)):
+        run_manifest(config)
+    assert manifest.read_bytes() == original  # failure never truncates old output
